@@ -1,0 +1,38 @@
+# قالب تطبيقٍ جديد — انسخه إلى apps/<اسم-قصير>.yml (حروف صغيرة وأرقام وشرطات)
+name: "اسم التطبيق"
+bundle_id: com.example.app
+bundle_name: Example App               # اسم المعرّف في بوابة المطوّرين
+sku: example-app-ios
+team_id: Y4R9ZHWK9Y
+version: "1.0.0"
+
+source:
+  repo: owner/repo
+  ref: main
+  private: false                       # true يتطلّب السرّ SOURCE_REPO_TOKEN (قراءة المستودع)
+  workdir: ios                         # مجلد المشروع داخل المستودع
+
+build:
+  python: ""                           # مثل "3.12" إن احتاج التحضير Python
+  pip: []
+  brew: []                             # مثل [xcodegen] أو [cocoapods]
+  cache: {}                            # {path: ..., key: ...}
+  prepare: |                           # أوامر قبل الأرشفة (توليد المشروع، pod install، flutter build ios --no-codesign…)
+    true
+  test: ""                             # أمر اختبار اختياري؛ فشله يوقف الرفع
+  project: App.xcodeproj               # أو App.xcworkspace
+  scheme: App
+  signing: automatic                   # automatic: Xcode يدير الملفات بمفتاح ASC؛ manual: يتطلّب profile وضبط المشروع
+  profile: ""                          # اسم ملف provisioning مع manual
+  extensions: []                       # [{bundle_suffix: widget, name: ..., profile: ...}]
+
+store:
+  metadata: ios/store/metadata         # بنية fastlane deliver: <locale>/name.txt …
+  screenshots: ios/store/screenshots   # <locale>/*.png بمقاسات آبل
+  names: ["اسم المتجر"]
+  primary_category: UTILITIES
+  secondary_category: ""
+  price: free
+  exclude_territories: []
+  third_party_content: false
+  automatic_release: true

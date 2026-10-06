@@ -1,0 +1,33 @@
+# ↻ إعادة تقديم مراجعةٍ متوقّفة على «معلومات مطلوبة» بعد معالجة سببها — لا يرفع شيئًا ولا يمسّ البيانات.
+# المدخل: دفع فرع resubmit/<app>.
+name: المتجر — إعادة التقديم
+
+on:
+  push:
+    branches: ['resubmit/**']
+
+jobs:
+  resubmit:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_OPT_OUT_USAGE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: إعداد التطبيق من apps/
+        run: ruby tools/config_env.rb >> "$GITHUB_ENV"
+      - name: إعادة التقديم ثم الجرد
+        env:
+          KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+        run: |
+          [ -n "$KEY_ID" ] && [ -n "$ISSUER_ID" ] && [ -n "$P8_B64" ] || { echo "::error::أسرار App Store Connect ناقصة"; exit 1; }
+          P8_CLEAN=$(printf '%s' "$P8_B64" | tr -d '\n\r ')
+          printf '{"key_id":"%s","issuer_id":"%s","key":"%s","is_key_content_base64":true,"in_house":false}' \
+            "$KEY_ID" "$ISSUER_ID" "$P8_CLEAN" > "$RUNNER_TEMP/asc_key.json"
+          ruby tools/asc/asc_resubmit.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID" || STATUS=$?
+          ruby tools/asc/asc_app_status.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID" || true
+          rm -f "$RUNNER_TEMP/asc_key.json"
+          exit ${STATUS:-0}

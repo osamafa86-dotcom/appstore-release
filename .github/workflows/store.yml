@@ -1,0 +1,135 @@
+# 🏪 رفع بيانات صفحة المتجر واللقطات وإرفاق البناء، ثم (في submit) التقديم لمراجعة آبل.
+#   upload/<app> → يرفع النصوص واللقطات ويُرفق البناء بلا تقديم — للمعاينة في App Store Connect
+#   submit/<app> → الشيء نفسه ثم يقدّم للمراجعة
+# البناء: store.submit_build في الإعداد، وإلا آخر بناءٍ مرفوع للنسخة نفسها.
+name: المتجر — رفع البيانات والتقديم
+
+on:
+  push:
+    branches: ['upload/**', 'submit/**']
+
+concurrency:
+  group: store-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_OPT_OUT_USAGE: "1"
+    steps:
+      - name: سحب أدوات الرفع
+        uses: actions/checkout@v4
+
+      - name: إعداد التطبيق من apps/
+        run: |
+          ruby tools/config_env.rb >> "$GITHUB_ENV"
+          MODE=upload; case "$GITHUB_REF_NAME" in submit/*) MODE=submit;; esac
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
+
+      - name: سحب البيانات واللقطات من مستودع التطبيق
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SRC_REF }}
+          path: src
+          token: ${{ env.SRC_PRIVATE == 'true' && secrets.SOURCE_REPO_TOKEN || github.token }}
+
+      - name: الشروط — فشلٌ مُشخَّص قبل لمس آبل
+        env:
+          K1: ${{ secrets.ASC_API_KEY_ID }}
+          K2: ${{ secrets.ASC_API_ISSUER_ID }}
+          K3: ${{ secrets.ASC_API_KEY_P8_B64 }}
+          REVIEW_PHONE: ${{ secrets.APPLE_REVIEW_PHONE }}
+        run: |
+          [ -z "$K1" ] || [ -z "$K2" ] || [ -z "$K3" ] && { echo "::error::أسرار App Store Connect ناقصة"; exit 1; }
+          [ -z "$REVIEW_PHONE" ] && { echo "::error::APPLE_REVIEW_PHONE ناقص — حقل إلزامي في بيانات المراجعة"; exit 1; }
+          # آبل ترفض الهاتف إلا بصيغة دولية: + ثم رمز البلد ثم الرقم
+          P=$(printf '%s' "$REVIEW_PHONE" | tr -d ' ()-'); case "$P" in 00*) P="+${P#00}";; esac
+          case "$P" in +[1-9]??????*) ;; *) echo "::error::APPLE_REVIEW_PHONE بصيغة غير دولية (مثل +962791234567)"; exit 1;; esac
+          META="src/$METADATA_PATH"; SHOTS="src/$SCREENSHOTS_PATH"
+          [ -d "$META" ] || { echo "::error::مجلد البيانات غائب: $METADATA_PATH"; exit 1; }
+          N=$(find "$SHOTS" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+          [ "$N" -lt 2 ] && { echo "::error::لقطات ناقصة ($N) في $SCREENSHOTS_PATH"; exit 1; }
+          for L in "$META"/*/; do
+            [ "$(basename "$L")" = "review_information" ] && continue
+            for f in name description keywords privacy_url support_url; do
+              test -s "$L$f.txt" || { echo "::error::$(basename "$L")/$f.txt فارغ أو مفقود"; exit 1; }
+            done
+            PRIV=$(cat "$L/privacy_url.txt"); CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "$PRIV" || echo 000)
+            [ "$CODE" = "200" ] || { echo "::error::رابط سياسة الخصوصية ($(basename "$L")) يرجع $CODE: $PRIV"; exit 1; }
+          done
+          echo "✓ الأسرار · لقطات $N · البيانات · الوضع: $MODE"
+
+      - name: مفتاح App Store Connect
+        env:
+          KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+        run: |
+          P8_CLEAN=$(printf '%s' "$P8_B64" | tr -d '\n\r ')
+          printf '{"key_id":"%s","issuer_id":"%s","key":"%s","is_key_content_base64":true,"in_house":false}' \
+            "$KEY_ID" "$ISSUER_ID" "$P8_CLEAN" > "$RUNNER_TEMP/asc_key.json"
+          echo "ASC_KEY_JSON=$RUNNER_TEMP/asc_key.json" >> "$GITHUB_ENV"
+
+      - name: تهيئة السجلّ — رقم النسخة والفئة واسم المتجر
+        run: |
+          CHOSEN_NAME_FILE="$RUNNER_TEMP/chosen_name.txt" ruby tools/asc/asc_prepare_version.rb "$ASC_KEY_JSON" "$BUNDLE_ID" "$APP_VERSION" "$STORE_NAMES" "$PRIMARY_CATEGORY" ${SECONDARY_CATEGORY:+"$SECONDARY_CATEGORY"}
+          # الاسم الذي قبلته آبل يُكتب في name.txt للغة الأساسية وإلا كتب deliver اسماً مرفوضاً فوقه
+          if [ -s "$RUNNER_TEMP/chosen_name.txt" ]; then
+            for L in "src/$METADATA_PATH"/*/; do [ -f "$L/name.txt" ] && [ "$(basename "$L")" != "review_information" ] && cp "$RUNNER_TEMP/chosen_name.txt" "$L/name.txt" && break; done
+          fi
+
+      - name: السعر والإتاحة
+        run: |
+          [ "$PRICE" = "free" ] && ruby tools/asc/asc_set_free_price.rb "$ASC_KEY_JSON" "$BUNDLE_ID"
+          [ -n "$EXCLUDE_TERRITORIES" ] && ruby tools/asc/asc_set_availability.rb "$ASC_KEY_JSON" "$BUNDLE_ID" --exclude "$EXCLUDE_TERRITORIES"
+          true
+
+      - name: البناء المرفق
+        run: |
+          B="$SUBMIT_BUILD"
+          if [ -z "$B" ]; then
+            B=$(fastlane run latest_testflight_build_number app_identifier:"$BUNDLE_ID" version:"$APP_VERSION" api_key_path:"$ASC_KEY_JSON" initial_build_number:0 2>/dev/null \
+                | grep -oE 'Result: [0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+          fi
+          [ -n "$B" ] && [ "$B" != "0" ] || { echo "::error::لا بناء مرفوع للنسخة $APP_VERSION — ادفع testflight/$APP أولًا"; exit 1; }
+          echo "BUILD_NUMBER=$B" >> "$GITHUB_ENV"; echo "✓ البناء $B للنسخة $APP_VERSION"
+
+      - name: رفع البيانات واللقطات وإرفاق البناء (والتقديم في submit)
+        env:
+          REVIEW_PHONE: ${{ secrets.APPLE_REVIEW_PHONE }}
+        run: |
+          META="src/$METADATA_PATH"
+          mkdir -p fastlane && printf '# الإعدادات كلّها أعلامٌ في سطر الأمر\n' > fastlane/Deliverfile
+          mkdir -p "$META/review_information"
+          P=$(printf '%s' "$REVIEW_PHONE" | tr -d ' ()-'); case "$P" in 00*) P="+${P#00}";; esac
+          printf '%s' "$P" > "$META/review_information/phone_number.txt"
+          SUBMIT_FLAGS=()
+          [ "$MODE" = "submit" ] && SUBMIT_FLAGS=(--submit_for_review true --automatic_release "$AUTOMATIC_RELEASE")
+          fastlane deliver \
+            --api_key_path "$ASC_KEY_JSON" \
+            --app_identifier "$BUNDLE_ID" \
+            --app_version "$APP_VERSION" \
+            --build_number "$BUILD_NUMBER" \
+            --metadata_path "$META" \
+            --screenshots_path "src/$SCREENSHOTS_PATH" \
+            --overwrite_screenshots true \
+            --skip_binary_upload true \
+            --force true \
+            --precheck_include_in_app_purchases false \
+            --run_precheck_before_submit true \
+            --submission_information "{\"add_id_info_uses_idfa\": false, \"content_rights_contains_third_party_content\": $THIRD_PARTY_CONTENT}" \
+            "${SUBMIT_FLAGS[@]}"
+          rm -f "$META/review_information/phone_number.txt"
+          [ "$MODE" = "submit" ] && echo "### ✓ $APP $APP_VERSION ($BUILD_NUMBER) قُدِّم للمراجعة" >> "$GITHUB_STEP_SUMMARY" || echo "### ✓ $APP $APP_VERSION: البيانات واللقطات رُفعت (بلا تقديم)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: الحالة بعد الرفع (قراءة فقط)
+        if: always() && env.ASC_KEY_JSON != ''
+        run: ruby tools/asc/asc_app_status.rb "$ASC_KEY_JSON" "$BUNDLE_ID" || true
+
+      - name: تنظيف
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc_key.json"

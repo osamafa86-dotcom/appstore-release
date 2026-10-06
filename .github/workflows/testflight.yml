@@ -1,0 +1,183 @@
+# 🚀 بناء تطبيق iOS من مستودعه وتوقيعه ورفعه إلى TestFlight.
+# المدخل: دفع فرع testflight/<app> (الإعداد في apps/<app>.yml). رقم البناء = آخر رقم عند آبل + 1.
+name: TestFlight — بناء ورفع
+
+on:
+  push:
+    branches: ['testflight/**']
+
+concurrency:
+  group: ${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_OPT_OUT_USAGE: "1"
+    steps:
+      - name: سحب أدوات الرفع
+        uses: actions/checkout@v4
+
+      - name: إعداد التطبيق من apps/
+        run: ruby tools/config_env.rb >> "$GITHUB_ENV"
+
+      - name: فحص الأسرار قبل أي عمل
+        env:
+          K1: ${{ secrets.ASC_API_KEY_ID }}
+          K2: ${{ secrets.ASC_API_ISSUER_ID }}
+          K3: ${{ secrets.ASC_API_KEY_P8_B64 }}
+          K4: ${{ secrets.APPLE_CERT_P12_B64 }}
+          K5: ${{ secrets.APPLE_CERT_PASSWORD }}
+          K6: ${{ secrets.SOURCE_REPO_TOKEN }}
+        run: |
+          [ -z "$K1" ] || [ -z "$K2" ] || [ -z "$K3" ] && { echo "::error::أسرار App Store Connect ناقصة (ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_B64)"; exit 1; }
+          if [ "$SIGNING" = "manual" ]; then
+            [ -z "$K4" ] || [ -z "$K5" ] && { echo "::error::شهادة التوزيع ناقصة (APPLE_CERT_P12_B64 / APPLE_CERT_PASSWORD) — مطلوبة مع التوقيع اليدوي"; exit 1; }
+          fi
+          [ "$SRC_PRIVATE" = "true" ] && [ -z "$K6" ] && { echo "::error::المستودع المصدر خاص ولا SOURCE_REPO_TOKEN"; exit 1; }
+          echo "✓ الأسرار موجودة"
+
+      - name: سحب شيفرة التطبيق
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SRC_REF }}
+          path: src
+          token: ${{ env.SRC_PRIVATE == 'true' && secrets.SOURCE_REPO_TOKEN || github.token }}
+
+      - name: كاش المشروع
+        if: env.CACHE_PATH != ''
+        uses: actions/cache@v4
+        with:
+          path: src/${{ env.CACHE_PATH }}
+          key: ${{ env.CACHE_KEY }}
+
+      - name: Python
+        if: env.PYTHON != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON }}
+
+      - name: أدوات البناء
+        run: |
+          for f in $BREW; do brew install "$f" >/dev/null 2>&1 || brew upgrade "$f"; done
+          if [ -n "$PIP" ]; then python3 -m pip install --quiet $PIP || python3 -m pip install --quiet --break-system-packages $PIP; fi
+          xcodebuild -version | head -1
+
+      - name: تحضير المشروع
+        if: env.PREPARE != ''
+        working-directory: src/${{ env.WORKDIR }}
+        run: bash -eo pipefail -c "$PREPARE"
+
+      - name: الاختبارات
+        if: env.TEST != ''
+        working-directory: src/${{ env.WORKDIR }}
+        run: bash -eo pipefail -c "$TEST"
+
+      - name: مفتاح App Store Connect
+        env:
+          P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+          KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          mkdir -p ~/private_keys ~/.appstoreconnect/private_keys
+          printf '%s' "$P8_B64" | base64 -d > ~/private_keys/AuthKey_${KEY_ID}.p8
+          cp ~/private_keys/AuthKey_${KEY_ID}.p8 ~/.appstoreconnect/private_keys/
+          P8_CLEAN=$(printf '%s' "$P8_B64" | tr -d '\n\r ')
+          printf '{"key_id":"%s","issuer_id":"%s","key":"%s","is_key_content_base64":true,"in_house":false}' \
+            "$KEY_ID" "$ISSUER_ID" "$P8_CLEAN" > "$RUNNER_TEMP/asc_key.json"
+          echo "ASC_KEY_JSON=$RUNNER_TEMP/asc_key.json" >> "$GITHUB_ENV"
+          echo "ASC_KEY_P8=$HOME/private_keys/AuthKey_${KEY_ID}.p8" >> "$GITHUB_ENV"
+
+      - name: شهادة التوزيع
+        if: env.SIGNING == 'manual'
+        env:
+          CERT_B64: ${{ secrets.APPLE_CERT_P12_B64 }}
+          CERT_PASS: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          printf '%s' "$CERT_B64" | base64 -d > "$RUNNER_TEMP/dist.p12"
+          security create-keychain -p ci-temp build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci-temp build.keychain
+          security import "$RUNNER_TEMP/dist.p12" -k build.keychain -P "$CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci-temp build.keychain >/dev/null
+          security list-keychains -d user -s build.keychain login.keychain-db
+          rm -f "$RUNNER_TEMP/dist.p12"
+
+      - name: معرّفات الحزم وسجلّ التطبيق وملفات provisioning
+        run: |
+          ruby tools/asc/asc_register_bundle_id.rb "$ASC_KEY_JSON" "$BUNDLE_ID" "$BUNDLE_NAME"
+          while IFS='|' read -r SUF NAME PROF; do
+            [ -z "$SUF" ] && continue
+            ruby tools/asc/asc_register_bundle_id.rb "$ASC_KEY_JSON" "$BUNDLE_ID.$SUF" "$NAME"
+          done <<< "$EXTENSIONS"
+          ruby tools/asc/asc_ensure_app.rb "$ASC_KEY_JSON" "$BUNDLE_ID" "$APP_NAME" "$SKU" || {
+            echo "::error::سجلّ التطبيق غائب في App Store Connect — أنشئه مرة (Apps ← New App ← iOS، الحزمة $BUNDLE_ID، SKU $SKU) ثم ادفع مجددًا"; exit 1; }
+          [ "$SIGNING" = "manual" ] || exit 0
+          PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"; mkdir -p "$PROF_DIR"
+          fetch_profile() { # <bundle_id> <الاسم المتوقع>
+            fastlane sigh --api_key_path "$ASC_KEY_JSON" -a "$1" --provisioning_name "$2" \
+              --ignore_profiles_with_different_name --filename p.mobileprovision -o "$RUNNER_TEMP/prof" >/dev/null
+            security cms -D -i "$RUNNER_TEMP/prof/p.mobileprovision" > "$RUNNER_TEMP/p.plist"
+            local NAME UUID; NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/p.plist"); UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/p.plist")
+            [ "$NAME" = "$2" ] || { echo "::error::ملف provisioning «$NAME» لا يطابق «$2»"; exit 1; }
+            cp "$RUNNER_TEMP/prof/p.mobileprovision" "$PROF_DIR/$UUID.mobileprovision"; echo "✓ $1 → $NAME"
+          }
+          fetch_profile "$BUNDLE_ID" "$PROFILE_NAME"
+          while IFS='|' read -r SUF NAME PROF; do
+            [ -z "$SUF" ] && continue
+            fetch_profile "$BUNDLE_ID.$SUF" "$PROF"
+          done <<< "$EXTENSIONS"
+
+      - name: رقم البناء (آخر رقم عند آبل + 1)
+        run: |
+          LATEST=$(fastlane run latest_testflight_build_number app_identifier:"$BUNDLE_ID" api_key_path:"$ASC_KEY_JSON" initial_build_number:0 2>/dev/null \
+                   | grep -oE 'Result: [0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+          [ -n "$LATEST" ] || { echo "::error::تعذّر قراءة آخر رقم بناء من آبل"; exit 1; }
+          echo "BUILD_NUMBER=$((LATEST + 1))" >> "$GITHUB_ENV"
+          echo "✓ آخر رقم عند آبل $LATEST → هذا البناء $((LATEST + 1)) · النسخة $APP_VERSION"
+
+      - name: الأرشفة والتصدير
+        working-directory: src/${{ env.WORKDIR }}
+        env:
+          KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          if [[ "$PROJECT" == *.xcworkspace ]]; then SRC=(-workspace "$PROJECT"); else SRC=(-project "$PROJECT"); fi
+          AUTH=()
+          if [ "$SIGNING" = "automatic" ]; then
+            AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_P8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID")
+            EXTRA=(DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic)
+          else
+            EXTRA=()
+          fi
+          ARCHIVE="$RUNNER_TEMP/app.xcarchive"
+          if ! xcodebuild "${SRC[@]}" -scheme "$SCHEME" -configuration Release -destination 'generic/platform=iOS' \
+               -archivePath "$ARCHIVE" archive -skipPackagePluginValidation -skipMacroValidation "${AUTH[@]}" \
+               MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" "${EXTRA[@]}" > "$RUNNER_TEMP/archive.log" 2>&1; then
+            echo "::error::فشلت الأرشفة — الأخطاء:"; grep -E "error:|BUILD FAILED|ARCHIVE FAILED" "$RUNNER_TEMP/archive.log" | sort -u | head -60; exit 1
+          fi
+          grep -E "^\*\* ARCHIVE" "$RUNNER_TEMP/archive.log" | tail -1
+          ruby "$GITHUB_WORKSPACE/tools/export_options.rb" > "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/ipa" "${AUTH[@]}" | tail -20
+          IPA=$(ls "$RUNNER_TEMP"/ipa/*.ipa 2>/dev/null | head -1)
+          [ -n "$IPA" ] || { echo "::error::لم يُنتَج IPA"; exit 1; }
+          echo "IPA=$IPA" >> "$GITHUB_ENV"; echo "✓ $IPA"
+
+      - name: الرفع إلى TestFlight
+        env:
+          KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app -f "$IPA" -t ios --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+          echo "### ✓ $APP $APP_VERSION ($BUILD_NUMBER) رُفع إلى TestFlight" >> "$GITHUB_STEP_SUMMARY"
+          echo "يظهر للمختبِرين بعد المعالجة عند آبل (دقائق)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: تنظيف
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc_key.json" ~/private_keys/*.p8 ~/.appstoreconnect/private_keys/*.p8; security delete-keychain build.keychain 2>/dev/null || true

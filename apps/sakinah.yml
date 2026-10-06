@@ -1,0 +1,47 @@
+# سكينة — التطبيق الأصلي (SwiftUI) في مستودع mediapro
+name: "سكينة"                          # اسم السجلّ إن أُنشئ أوّل مرة (اسم المتجر في store.names)
+bundle_id: org.emdatra.sakinah.native
+bundle_name: Sakinah Native
+sku: sakinah-native-ios
+team_id: Y4R9ZHWK9Y
+version: "5.1.0"                        # رقم النسخة للبناء وللمتجر معًا
+
+source:
+  repo: osamafa86-dotcom/mediapro
+  ref: claude/islamic-app-development-tpmkko
+  private: false
+  workdir: sakinah-native               # كل أوامر البناء تجري هنا (نسبةً إلى جذر المستودع)
+
+build:
+  python: "3.12"
+  pip: [fonttools, brotli]
+  brew: [xcodegen]
+  cache:                                # خطوط المصحف تُجلب مرة وتُحفظ (المسار نسبةً إلى جذر المستودع)
+    path: sakinah/.cache/fonts-qcf
+    key: sakinah-qcf-fonts-v2
+  prepare: |
+    python3 tools/build-fonts.py
+    cd App && xcodegen generate
+  test: swift test 2>&1 | tail -40
+  project: App/Sakinah.xcodeproj
+  scheme: Sakinah
+  signing: manual                       # التوقيع اليدوي مضبوط في App/project.yml بهذين الاسمين
+  profile: Sakinah Native AppStore CI
+  extensions:
+    - bundle_suffix: widget
+      name: Sakinah Native Widget
+      profile: Sakinah Native Widget AppStore CI
+
+store:
+  metadata: sakinah-native/store/metadata
+  screenshots: sakinah-native/store/screenshots
+  names:                                # تُجرَّب بالترتيب (الاسم فريد عالميًا عند آبل)
+    - "سكينة: الصلاة والقرآن والأذكار"
+    - "سكينة: مواقيت الصلاة والقبلة"
+    - "سكينة: مواقيت ومصحف وقبلة"
+  primary_category: LIFESTYLE
+  secondary_category: REFERENCE
+  price: free
+  exclude_territories: [CHN]            # لا رخصة نشر صينية
+  third_party_content: true             # نصّ Tanzil وخطوط مجمع الملك فهد وتلاوات quran.com
+  automatic_release: true
