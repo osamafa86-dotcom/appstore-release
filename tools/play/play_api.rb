@@ -2,12 +2,22 @@
 #   ruby tools/play/play_api.rb status   → قراءة فقط: التواصل، المسارات وإصداراتها، صفحة المتجر بلغاتها وعدد صورها
 #   ruby tools/play/play_api.rb details  → يضبط بريد/موقع/هاتف التواصل من ANDROID_CONTACT_* (الفارغ لا يُمسّ)
 # ما لا تصل إليه الواجهة البرمجية (تصنيف المحتوى، الجمهور، الإعلانات، الفئة، الدول، أول إرسال للمراجعة) يبقى في Play Console.
+require 'json'
 require 'googleauth'
 require 'google/apis/androidpublisher_v3'
 
 AP = Google::Apis::AndroidpublisherV3
-# رسالة Google كاملة لا «Invalid request» وحدها
-def why(e) = [e.message, (e.respond_to?(:body) && e.body.to_s[0, 600])].compact.join(' — ')
+# رسالة Google كاملة لا «Invalid request» وحدها — حقولها نصًّا بلا أقواس JSON: GitHub يقنّع كل سطر من أسطر
+# سرّ حساب الخدمة متعدد الأسطر (ومنها «{» و«}») فيبتلع جسم الخطأ لو طُبع كما هو
+def why(e)
+  body = e.respond_to?(:body) ? e.body.to_s : ''
+  err = (JSON.parse(body)['error'] rescue nil)
+  return e.message unless err.is_a?(Hash)
+  bits = [err['status'], err['message']]
+  Array(err['errors']).each { |x| bits << [x['reason'], x['message']].compact.join(': ') }
+  Array(err['details']).each { |x| bits << (x['reason'] || x['detail'] || x['@type']).to_s }
+  bits.compact.map(&:to_s).reject(&:empty?).uniq.join(' | ').tr('{}', '()')
+end
 mode = ARGV[0] || 'status'
 pkg = ENV.fetch('ANDROID_PACKAGE')
 svc = AP::AndroidPublisherService.new
