@@ -1,0 +1,47 @@
+# 🔎 Google Play بلا بناء: حالة التطبيق (قراءة فقط) أو ضبط بيانات التواصل.
+#   play-status/<app>   → التواصل، المسارات وإصداراتها، صفحة المتجر بلغاتها وعدد صورها
+#   play-details/<app>  → يضبط بريد/موقع/هاتف التواصل من android.contact في apps/<app>.yml
+name: Google Play — الحالة والتواصل
+
+on:
+  push:
+    branches: ['play-status/**', 'play-details/**']
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: سحب أدوات الرفع
+        uses: actions/checkout@v4
+
+      - name: إعداد التطبيق من apps/
+        run: ruby tools/config_env.rb >> "$GITHUB_ENV"
+
+      - name: فحص السرّ
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          [ -n "$SA" ] || { echo "::error::PLAY_SERVICE_ACCOUNT_JSON ناقص"; exit 1; }
+          echo "✓ حساب الخدمة موجود"
+
+      - name: Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: مكتبة Google Play
+        run: gem install googleauth google-apis-androidpublisher_v3 -N -q 2>&1 | tail -1
+
+      - name: التنفيذ
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/play.json"
+          MODE="${GITHUB_REF_NAME%%/*}"; MODE="${MODE#play-}"
+          set +e
+          PLAY_JSON_KEY="$RUNNER_TEMP/play.json" ruby tools/play/play_api.rb "$MODE"
+          RC=$?
+          rm -f "$RUNNER_TEMP/play.json"
+          exit $RC

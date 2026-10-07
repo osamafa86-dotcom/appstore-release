@@ -82,12 +82,16 @@ if play
     'ANDROID_ENV_PASSWORD' => need(env, 'password', "#{app}.yml android.env"),
     'ANDROID_ENV_ALIAS' => env['alias'].to_s,
     'ANDROID_METADATA' => a['metadata'].to_s,
+    # بيانات التواصل في صفحة المتجر (عامة): play-details يضبطها، والفارغ لا يُمسّ
+    'ANDROID_CONTACT_EMAIL' => (a['contact'] || {})['email'].to_s,
+    'ANDROID_CONTACT_WEBSITE' => (a['contact'] || {})['website'].to_s,
+    'ANDROID_CONTACT_PHONE' => (a['contact'] || {})['phone'].to_s,
     'CACHE_PATH' => cache['path'].to_s,
     'CACHE_KEY' => cache['key'].to_s,
     # أسرار التطبيق: <PREFIX>_UPLOAD_KEYSTORE_B64 و<PREFIX>_KEYSTORE_PASSWORD
     'SECRET_PREFIX' => app.upcase.tr('-', '_')
   )
-  abort "✗ apps/#{app}: android.metadata ناقص (مطلوب للرفع إلى Google Play)" if action != 'play-build' && action != 'play-keygen' && out['ANDROID_METADATA'].empty?
+  abort "✗ apps/#{app}: android.metadata ناقص (مطلوب للرفع إلى Google Play)" if %w[play-internal play-closed play-production].include?(action) && out['ANDROID_METADATA'].empty?
 end
 if action == 'testflight'
   %w[PROJECT SCHEME].each { |k| abort "✗ apps/#{app}: build.#{k.downcase} ناقص (مطلوب للبناء)" if out[k].empty? }

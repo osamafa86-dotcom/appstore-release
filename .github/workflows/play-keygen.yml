@@ -1,6 +1,6 @@
 # 🔑 مرة لكل تطبيق: إنشاء مفتاح الرفع إلى Google Play وحفظه أسرارًا في هذا المستودع دون أن يراه أحد.
 # المدخل: دفع فرع play-keygen/<app>. يحتاج سرًّا مؤقتًا SECRETS_PAT (رمز fine-grained على هذا المستودع
-# وحده بصلاحية Secrets: Read and write) — احذفه بعد النجاح.
+# وحده بصلاحية Secrets: Read and write)، والسير ينظّف وراءه: يحذف السرّ SECRETS_PAT ويُبطل الرمز نفسه.
 # يرفض الاستبدال إن وُجد المفتاح: تغيير مفتاح الرفع بعد أول رفع يوقف الرفع حتى تعيد Google ضبطه.
 # Play App Signing يحتفظ بمفتاح التوقيع الحقيقي؛ مفتاح الرفع وحده هنا، وضياعه يُصلَح بطلب إعادة ضبط من Play Console.
 name: Google Play — مفتاح الرفع (مرة لكل تطبيق)
@@ -25,11 +25,11 @@ jobs:
           GH_TOKEN: ${{ secrets.SECRETS_PAT }}
           EXISTING: ${{ secrets[format('{0}_UPLOAD_KEYSTORE_B64', env.SECRET_PREFIX)] }}
         run: |
-          if [ -n "$EXISTING" ]; then
-            echo "::error::${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64 موجود سلفًا — لا يُستبدل (احذفه يدويًا أولًا إن كان هذا مقصودًا ولم يُرفع به شيء)"
-            exit 1
-          fi
           [ -n "$GH_TOKEN" ] || { echo "::error::SECRETS_PAT ناقص: رمز fine-grained على $GITHUB_REPOSITORY بصلاحية Secrets: Read and write"; exit 1; }
+          if [ -n "$EXISTING" ]; then
+            echo "::notice::${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64 موجود سلفًا — لا يُستبدل (تغييره بعد أول رفع يوقف الرفع)؛ تنظيف الرمز فقط"
+            exit 0
+          fi
           umask 077
           PW=$(openssl rand -hex 24)
           echo "::add-mask::$PW"
@@ -42,4 +42,20 @@ jobs:
           echo "✓ حُفظ المفتاح سرَّين: ${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64 و${SECRET_PREFIX}_KEYSTORE_PASSWORD"
           keytool -list -v -keystore "$KS" -storepass "$PW" -alias "$ANDROID_KEY_ALIAS" | grep -E 'SHA256:|Valid from'
           rm -f "$KS"
-          gh secret list -R "$GITHUB_REPOSITORY"
+
+      - name: تنظيف الرمز المؤقت (حذف SECRETS_PAT وإبطاله)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.SECRETS_PAT }}
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "• لا SECRETS_PAT — لا شيء للتنظيف"; exit 0; }
+          gh secret delete SECRETS_PAT -R "$GITHUB_REPOSITORY" && echo "✓ حُذف السرّ SECRETS_PAT"
+          gh api "repos/$GITHUB_REPOSITORY/actions/secrets" --jq '.secrets[].name' 2>/dev/null || true
+          # إبطال الرمز نفسه عند GitHub (واجهة إبطال الرموز المكشوفة) — بعده لا يصلح لشيء ولو بقي في حسابك
+          CODE=$(jq -n --arg t "$GH_TOKEN" '{credentials: [$t]}' | curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+            https://api.github.com/credentials/revoke --data @-)
+          case "$CODE" in
+            202|200|204) echo "✓ أُبطل الرمز (HTTP $CODE) — يمكن حذفه من إعدادات حسابك متى شئت، ولم يعد يعمل" ;;
+            *) echo "::warning::لم يُبطَل الرمز آليًا (HTTP $CODE) — احذفه من github.com/settings/personal-access-tokens" ;;
+          esac

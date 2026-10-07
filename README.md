@@ -22,7 +22,9 @@
 
 | الفرع | ما يحدث | يكتب عند Google؟ |
 | --- | --- | --- |
-| `play-keygen/<app>` | **مرة لكل تطبيق**: يُنشئ مفتاح الرفع ويحفظه سرَّين (يحتاج `SECRETS_PAT` مؤقتًا) | لا |
+| `play-keygen/<app>` | **مرة لكل تطبيق**: يُنشئ مفتاح الرفع ويحفظه سرَّين، ثم يحذف `SECRETS_PAT` ويُبطله | لا |
+| `play-status/<app>` | يقرأ الحالة: التواصل، المسارات وإصداراتها، صفحة المتجر بلغاتها وصورها | لا |
+| `play-details/<app>` | يضبط بريد/موقع/هاتف التواصل من `android.contact` | نعم |
 | `play-build/<app>` | يبني AAB موقّعًا أثرًا — للرفع اليدوي الأول في Play Console | لا |
 | `play-internal/<app>` | يبني ويرفع إلى الاختبار الداخلي مع نصوص المتجر وصوره | نعم |
 | `play-closed/<app>` | يبني ويرفع إلى الاختبار المغلق (alpha) | نعم |
@@ -51,7 +53,7 @@ git push -f origin testflight/sakinah
 | `SOURCE_REPO_TOKEN` | اختياري: رمز قراءة لمستودعات المصدر الخاصة (fine-grained، Contents: Read) |
 | `PLAY_SERVICE_ACCOUNT_JSON` | مفتاح JSON لحساب خدمة في Google Cloud (مع تفعيل Google Play Android Developer API)، مدعوٍّ في Play Console ← Users and permissions بصلاحيات الإصدار |
 | `<APP>_UPLOAD_KEYSTORE_B64` و`<APP>_KEYSTORE_PASSWORD` | مفتاح الرفع إلى Google Play لكل تطبيق (مثل `SAKINAH_…`) — يُنشئهما `play-keygen/<app>` ولا يُكتبان يدويًا |
-| `SECRETS_PAT` | **مؤقت**: رمز fine-grained على هذا المستودع وحده (Secrets: Read and write) لـ`play-keygen` — يُحذف بعده |
+| `SECRETS_PAT` | **مؤقت**: رمز fine-grained على هذا المستودع وحده (Secrets: Read and write) لـ`play-keygen`، الذي يحذفه ويُبطله بعد الاستعمال |
 
 ## إضافة تطبيق
 
@@ -74,6 +76,10 @@ git push -f origin testflight/sakinah
 
 - **الحسابات الشخصية الجديدة** (بعد 13 نوفمبر 2023) تحتاج اختبارًا مغلقًا بـ12 مختبِرًا لـ14 يومًا
   متصلة قبل طلب الإنتاج؛ حسابات المؤسسات معفاة.
+- **أول رفع**: Play Console صار يطلب اسم الحزمة عند Create app، فأول رفع عبر الواجهة البرمجية ينجح مباشرةً
+  (قِيس مع سكينة 2026-10-07) — لا رفع يدويًا أولًا.
+- **ما لا واجهة برمجية له**: تصنيف المحتوى، الجمهور، أمان البيانات، الإعلانات، الفئة، الدول، وأول «إرسال للمراجعة»
+  — يبقى في Play Console، و`play-status/<app>` يذكّر به.
 - **تطبيقٌ لم يُنشر بعد**: Google تقبل منه إصدارات «مسودة» فقط؛ السير يكتشف ذلك فيرفع مسودةً،
   وتنشرها من Play Console (المسار ← Edit release ← Save and publish).
 - **مستوى API**: منذ 31 أغسطس 2026 تشترط Google Play استهداف Android 16 (API 36) للتطبيقات الجديدة

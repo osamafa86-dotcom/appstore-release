@@ -67,3 +67,7 @@ android:
     password: SAKINAH_KEYSTORE_PASSWORD
     alias: SAKINAH_KEY_ALIAS
   metadata: sakinah-android/store/metadata/android   # تخطيط fastlane supply (ar أساسية + en-US)
+  contact:                              # تظهر في صفحة المتجر للعموم — البريد يضيفه المالك وحده
+    website: https://osamafa86-dotcom.github.io/mediapro/
+    email: ""
+    phone: ""

@@ -8,7 +8,8 @@
 - `submit/<app>` يقدّم للمراجعة عند آبل: لا تدفعه إلا بطلبٍ صريح من المالك في جلستك.
 - `status/<app>` آمن دائمًا (قراءة فقط) — ابدأ به عند الشك.
 - `play-production/<app>` يُرسل لمراجعة Google: لا تدفعه إلا بطلبٍ صريح من المالك. `play-build` لا يكتب عند Google.
-- `play-keygen/<app>` مرة واحدة لكل تطبيق، ولا يستبدل مفتاحًا موجودًا.
+- `play-keygen/<app>` مرة واحدة لكل تطبيق، ولا يستبدل مفتاحًا موجودًا؛ ينظّف `SECRETS_PAT` وراءه.
+- `play-status/<app>` آمن دائمًا (قراءة فقط) لحالة Google Play.
 - لا تعدّل ملفات `.github/workflows/` و`tools/` إلا بطلب المالك؛ تعديل `apps/<app>.yml` لتطبيقك مسموح.
 - الفرع المحفّز يُبنى دائمًا من `origin/main` الأحدث، ويُدفع بـ `-f`.
 
@@ -21,6 +22,7 @@
    git fetch origin main
    git checkout -B <action>/<app> origin/main      # testflight | upload | submit | status | resubmit
                                                    # play-build | play-internal | play-closed | play-production
+                                                   # play-status | play-details | play-keygen
    echo "$(date -u +%FT%TZ) <سبب مختصر>" >> triggers/<app>.log
    git add triggers/<app>.log && git commit -m "<action>: <app>"
    git push -f origin <action>/<app>

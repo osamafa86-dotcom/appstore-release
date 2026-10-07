@@ -57,3 +57,4 @@ android:
     alias: APP_KEY_ALIAS               # اختياري
   metadata: android/store/metadata/android   # بنية fastlane supply: <lang>/title.txt، short_description.txt،
                                              # full_description.txt، changelogs/default.txt، images/…
+  contact: {website: "", email: "", phone: ""}   # بيانات التواصل العامة (play-details)
