@@ -6,6 +6,8 @@ require 'googleauth'
 require 'google/apis/androidpublisher_v3'
 
 AP = Google::Apis::AndroidpublisherV3
+# رسالة Google كاملة لا «Invalid request» وحدها
+def why(e) = [e.message, (e.respond_to?(:body) && e.body.to_s[0, 600])].compact.join(' — ')
 mode = ARGV[0] || 'status'
 pkg = ENV.fetch('ANDROID_PACKAGE')
 svc = AP::AndroidPublisherService.new
@@ -17,7 +19,7 @@ begin
 rescue Google::Apis::Error => e
   hint = e.message =~ /permission|403/i ? ' — حساب الخدمة غير مدعوٍّ أو صلاحياته لم تسرِ بعد (حتى 24 ساعة)' :
          e.message =~ /not found|404/i ? ' — لا تطبيق بهذه الحزمة في Play Console' : ''
-  abort "✗ فتح تعديل على #{pkg}: #{e.message}#{hint}"
+  abort "✗ فتح تعديل على #{pkg}: #{why(e)}#{hint}"
 end
 
 d = svc.get_edit_detail(pkg, edit.id)
@@ -42,30 +44,36 @@ if mode == 'details'
     svc.commit_edit(pkg, edit.id)
   rescue Google::Apis::Error => e
     svc.delete_edit(pkg, edit.id) rescue nil
-    abort "✗ ضبط التواصل: #{e.message}"
+    abort "✗ ضبط التواصل: #{why(e)}"
   end
   puts "✓ ضُبط: #{want.keys.map { |k| k.to_s.sub('contact_', '') }.join('، ')}"
   exit 0
 end
 
 puts '── المسارات ──'
-tracks = svc.list_edit_tracks(pkg, edit.id).tracks || []
-tracks.each do |t|
+# قائمة المسارات قد تُرفض لتطبيقٍ لم يُنشر (Invalid request)؛ فيُقرأ كل مسار معروف وحده
+%w[production beta alpha internal].each do |name|
+  t = svc.get_edit_track(pkg, edit.id, name)
   rel = t.releases || []
-  next puts("• #{t.track}: فارغ") if rel.empty?
-  rel.each { |r| puts "• #{t.track}: #{r.name} [#{r.status}] versionCode #{Array(r.version_codes).join(',')}" }
+  next puts("• #{name}: فارغ") if rel.empty?
+  rel.each { |r| puts "• #{name}: #{r.name} [#{r.status}] versionCode #{Array(r.version_codes).join(',')}" }
+rescue Google::Apis::Error => e
+  puts "• #{name}: تعذّرت القراءة — #{why(e)}"
 end
-puts '• لا مسارات' if tracks.empty?
 
 puts '── صفحة المتجر ──'
-listings = svc.list_edit_listings(pkg, edit.id).listings || []
-listings.each do |l|
-  counts = %w[icon featureGraphic phoneScreenshots tenInchScreenshots].map do |ty|
-    "#{ty} #{(svc.list_edit_images(pkg, edit.id, l.language, ty).images || []).size}"
+begin
+  listings = svc.list_edit_listings(pkg, edit.id).listings || []
+  listings.each do |l|
+    counts = %w[icon featureGraphic phoneScreenshots tenInchScreenshots].map do |ty|
+      "#{ty} #{(svc.list_edit_images(pkg, edit.id, l.language, ty).images || []).size}"
+    end
+    puts "• #{l.language}: «#{l.title}» · قصير #{l.short_description.to_s.size} · كامل #{l.full_description.to_s.size} حرفًا · #{counts.join(' · ')}"
   end
-  puts "• #{l.language}: «#{l.title}» · قصير #{l.short_description.to_s.size} · كامل #{l.full_description.to_s.size} حرفًا · #{counts.join(' · ')}"
+  puts '• لا صفحة متجر بعد' if listings.empty?
+rescue Google::Apis::Error => e
+  puts "• تعذّرت قراءة صفحة المتجر — #{why(e)}"
 end
-puts '• لا صفحة متجر بعد' if listings.empty?
 svc.delete_edit(pkg, edit.id)
 puts '── يبقى في Play Console (لا واجهة برمجية له) ──'
 puts '• App content: تصنيف المحتوى، الجمهور المستهدف، أمان البيانات، الإعلانات، الوصول إلى التطبيق…'
