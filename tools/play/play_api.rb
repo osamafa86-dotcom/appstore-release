@@ -46,6 +46,10 @@ if mode == 'details'
     puts(want.empty? ? '• لا قيم تواصل في apps/<app>.yml (android.contact)' : '✓ التواصل مضبوط سلفًا')
     exit 0
   end
+  if d.contact_email.to_s.empty? && !want.key?(:contact_email)
+    svc.delete_edit(pkg, edit.id)
+    abort '✗ Google لا تقبل موقعًا أو هاتفًا قبل بريد التواصل: أضف android.contact.email، أو اضبطه مرة في Play Console ← إعدادات المتجر'
+  end
   nd = AP::AppDetails.new(default_language: d.default_language, contact_email: d.contact_email,
                           contact_website: d.contact_website, contact_phone: d.contact_phone)
   want.each { |k, v| nd.send("#{k}=", v) }
