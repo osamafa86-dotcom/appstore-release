@@ -45,3 +45,25 @@ store:
   exclude_territories: [CHN]            # لا رخصة نشر صينية
   third_party_content: true             # نصّ Tanzil وخطوط مجمع الملك فهد وتلاوات quran.com
   automatic_release: true
+
+# ── Google Play (فروع play-*) ────────────────────────────────────────────────
+android:
+  package: org.emdatra.sakinah
+  workdir: sakinah-android
+  java: "21"
+  gradle: "8.14.3"                      # لا gradlew في المشروع: نسخة Gradle محدّدة
+  python: "3.12"
+  prepare: |
+    python3 -m pip install --quiet fonttools brotli
+    python3 ../sakinah-native/tools/build-fonts.py --android
+  test: gradle :core:test --no-daemon --console=plain -q
+  task: ":app:bundleRelease"
+  aab: app/build/outputs/bundle/release/*.aab
+  version_code_base: 1000               # versionCode = هذا + رقم تشغيل سير play (يزيد ولا يعود)
+  key_alias: upload
+  env:                                  # ما يقرؤه app/build.gradle.kts
+    version_code: SAKINAH_BUILD
+    keystore: SAKINAH_KEYSTORE
+    password: SAKINAH_KEYSTORE_PASSWORD
+    alias: SAKINAH_KEY_ALIAS
+  metadata: sakinah-android/store/metadata/android   # تخطيط fastlane supply (ar أساسية + en-US)

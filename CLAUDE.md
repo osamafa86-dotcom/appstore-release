@@ -1,12 +1,14 @@
-# دليل الوكلاء — الرفع إلى App Store عبر هذا المستودع
+# دليل الوكلاء — الرفع إلى App Store وGoogle Play عبر هذا المستودع
 
-هذا المستودع يرفع تطبيقات iOS لكل المشاريع. أنت (وكيل في مشروع آخر) **لا تحمل أسرار آبل**:
+هذا المستودع يرفع تطبيقات iOS وAndroid لكل المشاريع. أنت (وكيل في مشروع آخر) **لا تحمل أسرار المتجرين**:
 تدفع فرعًا هنا، وسير GitHub Actions يبني ويرفع بالأسرار المحفوظة.
 
 ## القواعد
 - لا تكتب أسرارًا في أي ملف أو رسالة، ولا تطبع محتوى `asc_key.json` أو `.p8` أو `.p12`.
 - `submit/<app>` يقدّم للمراجعة عند آبل: لا تدفعه إلا بطلبٍ صريح من المالك في جلستك.
 - `status/<app>` آمن دائمًا (قراءة فقط) — ابدأ به عند الشك.
+- `play-production/<app>` يُرسل لمراجعة Google: لا تدفعه إلا بطلبٍ صريح من المالك. `play-build` لا يكتب عند Google.
+- `play-keygen/<app>` مرة واحدة لكل تطبيق، ولا يستبدل مفتاحًا موجودًا.
 - لا تعدّل ملفات `.github/workflows/` و`tools/` إلا بطلب المالك؛ تعديل `apps/<app>.yml` لتطبيقك مسموح.
 - الفرع المحفّز يُبنى دائمًا من `origin/main` الأحدث، ويُدفع بـ `-f`.
 
@@ -17,7 +19,8 @@
 3. حفّز:
    ```bash
    git fetch origin main
-   git checkout -B <action>/<app> origin/main      # action: testflight | upload | submit | status | resubmit
+   git checkout -B <action>/<app> origin/main      # testflight | upload | submit | status | resubmit
+                                                   # play-build | play-internal | play-closed | play-production
    echo "$(date -u +%FT%TZ) <سبب مختصر>" >> triggers/<app>.log
    git add triggers/<app>.log && git commit -m "<action>: <app>"
    git push -f origin <action>/<app>
@@ -32,6 +35,9 @@
 5. أبلغ المالك بالنتيجة: رقم البناء المرفوع، أو حالة التقديم (`WAITING_FOR_REVIEW`…)، أو سطر الخطأ.
 
 ## أعطال معروفة
+- Google Play «Package not found»: التطبيق جديد — المالك ينشئه في Play Console ويرفع AAB من `play-build` يدويًا مرة.
+- «Only releases with status draft may be created on draft app»: يُعالَج آليًا (يُرفع مسودة)؛ المالك ينشره من Play Console.
+- «The caller does not have permission»: حساب الخدمة غير مدعوٍّ في Play Console ← Users and permissions.
 - `ProgramLicenseAgreementUpdated` / «A required agreement is missing»: صاحب الحساب يوافق على الاتفاقية في developer.apple.com — لا حلّ برمجي. انتظر دقائق بعد الموافقة ثم أعد `status`.
 - «an Actions budget is preventing further use»: ميزانية Actions نفدت — المالك يرفعها من إعدادات الفوترة.
 - «سجلّ التطبيق غائب»: المالك ينشئه مرة في App Store Connect (Apps ← New App).

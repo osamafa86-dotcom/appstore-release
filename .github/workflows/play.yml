@@ -1,0 +1,252 @@
+# 🤖 بناء تطبيق Android (AAB موقّع بمفتاح الرفع) ورفعه إلى Google Play مع بيانات المتجر ولقطاته.
+# المدخل: دفع فرع <إجراء>/<app> (الإعداد في قسم android من apps/<app>.yml):
+#   play-build/<app>       → بناء AAB فقط: أثرٌ للرفع اليدوي الأول في Play Console أو للفحص
+#   play-internal/<app>    → الاختبار الداخلي (internal)
+#   play-closed/<app>      → الاختبار المغلق (alpha) — شرط الحسابات الشخصية قبل طلب الإنتاج
+#   play-production/<app>  → الإنتاج (يُرسل لمراجعة Google) — بطلبٍ صريح من المالك فقط
+# versionCode = android.version_code_base + رقم تشغيل هذا السير: يزيد ولا يعود.
+name: Google Play — بناء ورفع
+
+on:
+  push:
+    branches: ['play-build/**', 'play-internal/**', 'play-closed/**', 'play-production/**']
+
+concurrency:
+  group: ${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_OPT_OUT_USAGE: "1"
+    steps:
+      - name: سحب أدوات الرفع
+        uses: actions/checkout@v4
+
+      - name: إعداد التطبيق من apps/
+        run: ruby tools/config_env.rb >> "$GITHUB_ENV"
+
+      - name: المسار ورقم النسخة
+        run: |
+          case "${GITHUB_REF_NAME%%/*}" in
+            play-internal)   TRACK=internal ;;
+            play-closed)     TRACK=alpha ;;
+            play-production) TRACK=production ;;
+            *)               TRACK= ;;
+          esac
+          VC=$((ANDROID_VERSION_CODE_BASE + GITHUB_RUN_NUMBER))
+          { echo "TRACK=$TRACK"; echo "VERSION_CODE=$VC"; } >> "$GITHUB_ENV"
+          echo "✓ ${TRACK:-بناء فقط} · versionCode=$VC · versionName=$ANDROID_VERSION_NAME"
+
+      - name: فحص الأسرار قبل أي عمل
+        env:
+          KS: ${{ secrets[format('{0}_UPLOAD_KEYSTORE_B64', env.SECRET_PREFIX)] }}
+          KS_PW: ${{ secrets[format('{0}_KEYSTORE_PASSWORD', env.SECRET_PREFIX)] }}
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          SRC_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$KS_PW" ]; then
+            echo "::error::مفتاح الرفع ناقص (${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64 / ${SECRET_PREFIX}_KEYSTORE_PASSWORD) — أنشئه مرة بدفع play-keygen/$APP"
+            exit 1
+          fi
+          if [ -n "$TRACK" ]; then
+            [ -n "$SA" ] || { echo "::error::PLAY_SERVICE_ACCOUNT_JSON ناقص — مفتاح JSON لحساب خدمة من Google Cloud، مدعوٍّ في Play Console"; exit 1; }
+            printf '%s' "$SA" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("type")=="service_account" and d.get("client_email") and d.get("private_key") else 1)' \
+              || { echo "::error::PLAY_SERVICE_ACCOUNT_JSON ليس مفتاح JSON لحساب خدمة (type=service_account)"; exit 1; }
+          fi
+          if [ "$SRC_PRIVATE" = "true" ] && [ -z "$SRC_TOKEN" ]; then
+            echo "::error::المستودع المصدر خاص ولا SOURCE_REPO_TOKEN"
+            exit 1
+          fi
+          echo "✓ الأسرار موجودة"
+
+      - name: سحب شيفرة التطبيق
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SRC_REF }}
+          path: src
+          token: ${{ env.SRC_PRIVATE == 'true' && secrets.SOURCE_REPO_TOKEN || github.token }}
+
+      - name: فحص بيانات المتجر
+        if: env.TRACK != ''
+        run: |
+          python3 - "src/$ANDROID_METADATA" <<'PY'
+          import os, sys
+          root = sys.argv[1]
+          langs = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
+          if not langs: sys.exit(f"::error::لا لغات في {root}")
+          limits = {'title': 30, 'short_description': 80, 'full_description': 4000}
+          bad = []
+          for l in langs:
+              for f, n in limits.items():
+                  p = os.path.join(root, l, f + '.txt')
+                  t = open(p, encoding='utf-8').read().strip() if os.path.exists(p) else ''
+                  if not t: bad.append(f'{l}/{f}.txt فارغ أو مفقود')
+                  elif len(t) > n: bad.append(f'{l}/{f}.txt {len(t)} حرفًا (الحد {n})')
+          img = lambda l, x: os.path.join(root, l, 'images', x)
+          if not any(os.path.exists(img(l, 'icon.png')) for l in langs): bad.append('icon.png مفقود (512×512)')
+          if not any(os.path.exists(img(l, 'featureGraphic.png')) for l in langs): bad.append('featureGraphic.png مفقود (1024×500)')
+          shots = max(len([f for f in os.listdir(img(l, 'phoneScreenshots')) if f.endswith('.png')]) if os.path.isdir(img(l, 'phoneScreenshots')) else 0 for l in langs)
+          if shots < 2: bad.append(f'لقطات الهاتف {shots} — اثنتان على الأقل')
+          for b in bad: print(f'::error::{b}')
+          if bad: sys.exit(1)
+          print(f'✓ اللغات: {" ".join(langs)} · لقطات الهاتف: {shots}')
+          PY
+
+      - name: Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.ANDROID_JAVA }}
+
+      - name: Gradle (نسخة محدّدة)
+        if: env.ANDROID_GRADLE != ''
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.ANDROID_GRADLE }}
+
+      - name: Gradle (من gradlew)
+        if: env.ANDROID_GRADLE == ''
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: كاش المشروع
+        if: env.CACHE_PATH != ''
+        uses: actions/cache@v4
+        with:
+          path: src/${{ env.CACHE_PATH }}
+          key: ${{ env.CACHE_KEY }}
+
+      - name: Python
+        if: env.ANDROID_PYTHON != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.ANDROID_PYTHON }}
+
+      - name: تحضير المشروع
+        if: env.ANDROID_PREPARE != ''
+        working-directory: src/${{ env.ANDROID_WORKDIR }}
+        run: bash -eo pipefail -c "$ANDROID_PREPARE"
+
+      - name: الاختبارات
+        if: env.ANDROID_TEST != ''
+        working-directory: src/${{ env.ANDROID_WORKDIR }}
+        run: bash -eo pipefail -c "$ANDROID_TEST"
+
+      - name: مفتاح الرفع (من السرّ إلى ملفٍّ مؤقّت)
+        env:
+          KS: ${{ secrets[format('{0}_UPLOAD_KEYSTORE_B64', env.SECRET_PREFIX)] }}
+        run: |
+          umask 077
+          printf '%s' "$KS" | tr -d '\n\r ' | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
+
+      - name: بناء AAB والتحقق من توقيعه
+        working-directory: src/${{ env.ANDROID_WORKDIR }}
+        env:
+          KS_PW: ${{ secrets[format('{0}_KEYSTORE_PASSWORD', env.SECRET_PREFIX)] }}
+        run: |
+          export "$ANDROID_ENV_VERSION_CODE=$VERSION_CODE" "$ANDROID_ENV_KEYSTORE=$KEYSTORE_FILE" "$ANDROID_ENV_PASSWORD=$KS_PW"
+          if [ -n "$ANDROID_ENV_ALIAS" ]; then export "$ANDROID_ENV_ALIAS=$ANDROID_KEY_ALIAS"; fi
+          if [ -n "$ANDROID_GRADLE" ]; then G=gradle; else chmod +x gradlew; G=./gradlew; fi
+          $G "$ANDROID_TASK" --no-daemon --console=plain
+          # shellcheck disable=SC2086,SC2012 # النمط من الإعداد يُوسَّع هنا عمدًا
+          AAB=$(ls -1 $ANDROID_AAB 2>/dev/null | head -1)
+          if [ -z "$AAB" ] || [ ! -f "$AAB" ]; then echo "::error::لا AAB في $ANDROID_AAB"; exit 1; fi
+          # التوقيع الفعلي لا افتراضًا: شهادة AAB هي شهادة مفتاح الرفع، لا debug
+          AAB_SHA=$(keytool -printcert -jarfile "$AAB" | awk '/SHA256:/ {print $2; exit}')
+          KS_SHA=$(keytool -list -v -keystore "$KEYSTORE_FILE" -storepass "$KS_PW" -alias "$ANDROID_KEY_ALIAS" | awk '/SHA256:/ {print $2; exit}')
+          if [ -z "$AAB_SHA" ] || [ "$AAB_SHA" != "$KS_SHA" ]; then
+            echo "::error::AAB غير موقّع بمفتاح الرفع (بصمته ${AAB_SHA:-لا توقيع}) — هل يقرأ Gradle المتغيّرين $ANDROID_ENV_KEYSTORE و$ANDROID_ENV_PASSWORD؟"
+            exit 1
+          fi
+          echo "AAB_PATH=$PWD/$AAB" >> "$GITHUB_ENV"
+          echo "✓ $(basename "$AAB") · $(du -h "$AAB" | cut -f1) · بصمة مفتاح الرفع SHA-256 $AAB_SHA"
+
+      - name: ما في AAB فعلًا (bundletool)
+        run: |
+          V=1.18.1
+          if curl -sSfL -o "$RUNNER_TEMP/bundletool.jar" "https://github.com/google/bundletool/releases/download/$V/bundletool-all-$V.jar"; then
+            bt() { java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$AAB_PATH" --xpath "$1"; }
+            VC=$(bt /manifest/@android:versionCode); VN=$(bt /manifest/@android:versionName)
+            PKG=$(bt /manifest/@package); TSDK=$(bt /manifest/uses-sdk/@android:targetSdkVersion)
+            echo "✓ $PKG · versionCode=$VC · versionName=$VN · targetSdk=$TSDK"
+            [ "$PKG" = "$ANDROID_PACKAGE" ] || { echo "::error::الحزمة في AAB «$PKG» لا تطابق android.package «$ANDROID_PACKAGE»"; exit 1; }
+            [ "$VC" = "$VERSION_CODE" ] || { echo "::error::versionCode في AAB ($VC) غير $VERSION_CODE — هل يقرأ Gradle المتغيّر $ANDROID_ENV_VERSION_CODE؟"; exit 1; }
+          else
+            echo "::warning::تعذّر تنزيل bundletool — تخطّي فحص البيان"
+          fi
+
+      - name: الناتج أثرًا (AAB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-${{ env.ANDROID_VERSION_NAME }}-${{ env.VERSION_CODE }}-aab
+          path: ${{ env.AAB_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Ruby
+        if: env.TRACK != ''
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: fastlane
+        if: env.TRACK != ''
+        run: gem install fastlane -N -q 2>&1 | tail -1 && fastlane --version | tail -1
+
+      - name: الرفع إلى Google Play
+        if: env.TRACK != ''
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/play.json"
+          LOG="$RUNNER_TEMP/supply.log"
+          up() {
+            fastlane supply --package_name "$ANDROID_PACKAGE" --json_key "$RUNNER_TEMP/play.json" \
+              --aab "$AAB_PATH" --track "$TRACK" --release_status "$1" \
+              --version_name "$ANDROID_VERSION_NAME ($VERSION_CODE)" \
+              --metadata_path "src/$ANDROID_METADATA" --skip_upload_apk true "${@:2}" 2>&1 | tee "$LOG"
+            return "${PIPESTATUS[0]}"
+          }
+          set +e
+          up completed; RC=$?
+          if [ "$RC" -ne 0 ] && grep -q "Only releases with status draft may be created on draft app" "$LOG"; then
+            echo "::warning::التطبيق ما زال مسودة عند Google (لم يُراجَع بعد): يُرفع الإصدار مسودةً"
+            up draft; RC=$?; [ "$RC" -eq 0 ] && echo "RELEASE_STATE=draft" >> "$GITHUB_ENV"
+          fi
+          if [ "$RC" -ne 0 ] && grep -qi "changesNotSentForReview" "$LOG"; then
+            echo "::warning::Google لا تقبل الإرسال الآلي للمراجعة لهذا التطبيق: تُحفظ التغييرات دون إرسال"
+            up completed --changes_not_sent_for_review true; RC=$?; [ "$RC" -eq 0 ] && echo "RELEASE_STATE=not_sent" >> "$GITHUB_ENV"
+          fi
+          set -e
+          rm -f "$RUNNER_TEMP/play.json"
+          if [ "$RC" -ne 0 ]; then
+            if grep -qiE "Package not found|applicationNotFound|No application was found" "$LOG"; then
+              echo "::error::Google لا تعرف الحزمة $ANDROID_PACKAGE بعد: أنشئ التطبيق في Play Console وارفع AAB هذا التشغيل يدويًا مرة واحدة، ثم أعد الدفع"
+            elif grep -qiE "caller does not have permission|403" "$LOG"; then
+              echo "::error::حساب الخدمة بلا صلاحية: Play Console ← Users and permissions ← ادعُ بريده وامنحه صلاحيات الإصدار على التطبيق"
+            elif grep -qiE "version code .* already been used|versionCode" "$LOG"; then
+              echo "::error::versionCode $VERSION_CODE مستعمل — ارفع android.version_code_base في apps/$APP.yml"
+            elif grep -qiE "target API|targetSdk" "$LOG"; then
+              echo "::error::مستوى targetSdk أقل مما تشترطه Google Play — حدّثه في مشروع التطبيق"
+            fi
+            exit "$RC"
+          fi
+
+      - name: الخلاصة
+        if: env.TRACK != ''
+        run: |
+          case "${RELEASE_STATE:-}" in
+            draft)    echo "::notice::رُفع $ANDROID_VERSION_NAME ($VERSION_CODE) مسودةً على $TRACK — انشره من Play Console: Test and release ← المسار ← Edit release ← Next ← Save and publish" ;;
+            not_sent) echo "::notice::رُفع $ANDROID_VERSION_NAME ($VERSION_CODE) على $TRACK — أرسله للمراجعة من Play Console: Publishing overview ← Send changes for review" ;;
+            *)        echo "::notice::رُفع $ANDROID_VERSION_NAME ($VERSION_CODE) على $TRACK مع بيانات المتجر" ;;
+          esac
+
+      - name: تنظيف
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore" "$RUNNER_TEMP/play.json"

@@ -1,0 +1,45 @@
+# 🔑 مرة لكل تطبيق: إنشاء مفتاح الرفع إلى Google Play وحفظه أسرارًا في هذا المستودع دون أن يراه أحد.
+# المدخل: دفع فرع play-keygen/<app>. يحتاج سرًّا مؤقتًا SECRETS_PAT (رمز fine-grained على هذا المستودع
+# وحده بصلاحية Secrets: Read and write) — احذفه بعد النجاح.
+# يرفض الاستبدال إن وُجد المفتاح: تغيير مفتاح الرفع بعد أول رفع يوقف الرفع حتى تعيد Google ضبطه.
+# Play App Signing يحتفظ بمفتاح التوقيع الحقيقي؛ مفتاح الرفع وحده هنا، وضياعه يُصلَح بطلب إعادة ضبط من Play Console.
+name: Google Play — مفتاح الرفع (مرة لكل تطبيق)
+
+on:
+  push:
+    branches: ['play-keygen/**']
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: سحب أدوات الرفع
+        uses: actions/checkout@v4
+
+      - name: إعداد التطبيق من apps/
+        run: ruby tools/config_env.rb >> "$GITHUB_ENV"
+
+      - name: إنشاء المفتاح وحفظه
+        env:
+          GH_TOKEN: ${{ secrets.SECRETS_PAT }}
+          EXISTING: ${{ secrets[format('{0}_UPLOAD_KEYSTORE_B64', env.SECRET_PREFIX)] }}
+        run: |
+          if [ -n "$EXISTING" ]; then
+            echo "::error::${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64 موجود سلفًا — لا يُستبدل (احذفه يدويًا أولًا إن كان هذا مقصودًا ولم يُرفع به شيء)"
+            exit 1
+          fi
+          [ -n "$GH_TOKEN" ] || { echo "::error::SECRETS_PAT ناقص: رمز fine-grained على $GITHUB_REPOSITORY بصلاحية Secrets: Read and write"; exit 1; }
+          umask 077
+          PW=$(openssl rand -hex 24)
+          echo "::add-mask::$PW"
+          KS="$RUNNER_TEMP/upload.p12"
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$KS" -alias "$ANDROID_KEY_ALIAS" \
+            -keyalg RSA -keysize 4096 -validity 10000 -storepass "$PW" -keypass "$PW" \
+            -dname "CN=$APP upload key" 2>&1 | tail -1
+          base64 -w0 "$KS" | gh secret set "${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64" -R "$GITHUB_REPOSITORY"
+          printf '%s' "$PW" | gh secret set "${SECRET_PREFIX}_KEYSTORE_PASSWORD" -R "$GITHUB_REPOSITORY"
+          echo "✓ حُفظ المفتاح سرَّين: ${SECRET_PREFIX}_UPLOAD_KEYSTORE_B64 و${SECRET_PREFIX}_KEYSTORE_PASSWORD"
+          keytool -list -v -keystore "$KS" -storepass "$PW" -alias "$ANDROID_KEY_ALIAS" | grep -E 'SHA256:|Valid from'
+          rm -f "$KS"
+          gh secret list -R "$GITHUB_REPOSITORY"

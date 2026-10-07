@@ -36,3 +36,24 @@ store:
   exclude_territories: []
   third_party_content: false
   automatic_release: true
+
+# ── اختياري: Google Play (فروع play-*) — احذف القسم إن لم يكن للتطبيق نسخة Android ──
+android:
+  package: com.example.app
+  workdir: android                     # مجلد مشروع Gradle داخل المستودع
+  java: "21"
+  gradle: ""                           # فارغ = ./gradlew من المشروع؛ أو نسخة مثل "8.14.3"
+  python: ""
+  prepare: ""                          # أوامر قبل البناء (flutter build appbundle يحتاج task مختلفًا…)
+  test: ""
+  task: ":app:bundleRelease"
+  aab: app/build/outputs/bundle/release/*.aab
+  version_code_base: 1000              # versionCode = هذا + رقم تشغيل سير play
+  key_alias: upload
+  env:                                 # أسماء متغيّرات البيئة التي يقرؤها build.gradle(.kts)
+    version_code: APP_VERSION_CODE     # versionCode = System.getenv("APP_VERSION_CODE")
+    keystore: APP_KEYSTORE             # مسار ملف المفتاح
+    password: APP_KEYSTORE_PASSWORD    # كلمة سرّه (وكلمة المفتاح نفسها)
+    alias: APP_KEY_ALIAS               # اختياري
+  metadata: android/store/metadata/android   # بنية fastlane supply: <lang>/title.txt، short_description.txt،
+                                             # full_description.txt، changelogs/default.txt، images/…
