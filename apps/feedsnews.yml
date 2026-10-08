@@ -1,0 +1,53 @@
+# فيد نيوز — تطبيق Flutter في مستودع postfeed (الموقع feedsnews.net في المستودع نفسه)
+# Android وحده هنا الآن؛ حقول iOS تُضاف حين يُنقل رفع الآيفون إلى هذا المستودع.
+name: "فيد نيوز"
+version: "2.11.0"                       # versionName في الحزمة من pubspec.yaml — يجب أن يطابقه
+
+source:
+  repo: osamafa86-dotcom/postfeed
+  ref: main
+  private: true                         # يتطلّب SOURCE_REPO_TOKEN (قراءة postfeed)
+  workdir: app
+
+# ── Google Play (فروع play-*) ────────────────────────────────────────────────
+android:
+  package: net.feedsnews.app
+  workdir: app/android
+  java: "17"
+  gradle: "9.3.1"                       # gradlew غير متتبَّع في postfeed: نسخة wrapper نفسها
+  python: ""
+  # Flutter مثبَّت على نسخة سير Android في postfeed. البناء نفسه بـ Gradle
+  # (المهمة أدناه)، و--config-only يكتب local.properties: مسار Flutter والإصدار.
+  # google-services.json لا يدخل المستودع بعد: بدونه تخرج الحزمة بلا إشعارات،
+  # وحارس build.gradle.kts يرفضها ما لم يُكتب nf.allowNoFirebase — للاختبار لا للإنتاج.
+  prepare: |
+    git clone -q --depth 1 -b 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+    export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+    cd ..
+    flutter --version | head -1
+    flutter pub get
+    flutter build apk --release --config-only
+    if [ ! -f android/app/google-services.json ]; then
+      case "$GITHUB_REF_NAME" in
+        play-production/*)
+          echo "::error::android/app/google-services.json غائب — الإنتاج لا يُرفع بلا إشعارات"
+          exit 1 ;;
+      esac
+      echo "::warning::google-services.json غائب: هذه الحزمة بلا إشعارات (مقبول لمسارات الاختبار)"
+      echo "nf.allowNoFirebase=true" >> android/gradle.properties
+    fi
+  test: ""                              # الاختبارات في CI مستودع postfeed قبل الدمج في main
+  task: ":app:bundleRelease"
+  aab: ../build/app/outputs/bundle/release/*.aab   # Flutter يبني في app/build لا android/app/build
+  version_code_base: 1000               # فوق رقم pubspec (+51) — versionCode = هذا + رقم التشغيل
+  key_alias: upload
+  env:                                  # ما يقرؤه app/android/app/build.gradle.kts
+    version_code: FEEDSNEWS_BUILD
+    keystore: FEEDSNEWS_KEYSTORE
+    password: FEEDSNEWS_KEYSTORE_PASSWORD
+    alias: FEEDSNEWS_KEY_ALIAS
+  metadata: app/fastlane/metadata/android   # ar: العنوان والوصفان والأيقونة وصورة الميزة وثماني لقطات
+  contact:                              # عامة في صفحة المتجر — البريد يضيفه المالك، وGoogle لا تقبل الموقع قبله
+    website: https://feedsnews.net
+    email: ""
+    phone: ""
