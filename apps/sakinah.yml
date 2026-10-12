@@ -49,6 +49,7 @@ store:
 # ── Google Play (فروع play-*) ────────────────────────────────────────────────
 android:
   package: org.emdatra.sakinah
+  version: "5.1.1"                      # اسم إصدار Play (iOS على version أعلاه)
   workdir: sakinah-android
   java: "21"
   gradle: "8.14.3"                      # لا gradlew في المشروع: نسخة Gradle محدّدة
@@ -56,6 +57,7 @@ android:
   prepare: |
     python3 -m pip install --quiet fonttools brotli
     python3 ../sakinah-native/tools/build-fonts.py --android
+    echo "حزمة خطوط الصفحات: $(ls mushaf_fonts/src/main/assets/fonts | wc -l) ملفًا"
   test: gradle :core:test --no-daemon --console=plain -q
   task: ":app:bundleRelease"
   aab: app/build/outputs/bundle/release/*.aab

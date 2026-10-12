@@ -167,6 +167,8 @@ jobs:
           echo "✓ $(basename "$AAB") · $(du -h "$AAB" | cut -f1) · بصمة مفتاح الرفع SHA-256 $AAB_SHA"
 
       - name: ما في AAB فعلًا (bundletool)
+        env:
+          KS_PW: ${{ secrets[format('{0}_KEYSTORE_PASSWORD', env.SECRET_PREFIX)] }}
         run: |
           V=1.18.1
           if curl -sSfL -o "$RUNNER_TEMP/bundletool.jar" "https://github.com/google/bundletool/releases/download/$V/bundletool-all-$V.jar"; then
@@ -174,6 +176,16 @@ jobs:
             VC=$(bt /manifest/@android:versionCode); VN=$(bt /manifest/@android:versionName)
             PKG=$(bt /manifest/@package); TSDK=$(bt /manifest/uses-sdk/@android:targetSdkVersion)
             echo "✓ $PKG · versionCode=$VC · versionName=$VN · targetSdk=$TSDK"
+            # حجم التنزيل كما يحسبه المتجر (الحزمة الأساسية وحدها؛ حزم fast-follow/on-demand لا تُحتسب)
+            if java -jar "$RUNNER_TEMP/bundletool.jar" build-apks --bundle "$AAB_PATH" --output "$RUNNER_TEMP/size.apks" --mode=default \
+                 --ks "$KEYSTORE_FILE" --ks-pass "pass:$KS_PW" --ks-key-alias "$ANDROID_KEY_ALIAS" --key-pass "pass:$KS_PW" >/dev/null 2>&1; then
+              java -jar "$RUNNER_TEMP/bundletool.jar" get-size total --apks "$RUNNER_TEMP/size.apks" --human-readable-sizes | sed 's/^/  /'
+              PACKS=$(unzip -l "$AAB_PATH" | awk '{print $4}' | grep -oE '^[^/]+/' | sort -u | grep -vE '^(base|BUNDLE-METADATA|META-INF)/' | tr -d '/' | tr '\n' ' ')
+              [ -n "$PACKS" ] && echo "  حزم أصول (لا تُحتسب في الحجم المعروض): $PACKS"
+              rm -f "$RUNNER_TEMP/size.apks"
+            else
+              echo "::warning::تعذّر حساب حجم التنزيل (bundletool build-apks)"
+            fi
             [ "$PKG" = "$ANDROID_PACKAGE" ] || { echo "::error::الحزمة في AAB «$PKG» لا تطابق android.package «$ANDROID_PACKAGE»"; exit 1; }
             [ "$VC" = "$VERSION_CODE" ] || { echo "::error::versionCode في AAB ($VC) غير $VERSION_CODE — هل يقرأ Gradle المتغيّر $ANDROID_ENV_VERSION_CODE؟"; exit 1; }
           else
