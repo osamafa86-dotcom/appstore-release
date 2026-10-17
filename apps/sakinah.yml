@@ -4,7 +4,7 @@ bundle_id: org.emdatra.sakinah.native
 bundle_name: Sakinah Native
 sku: sakinah-native-ios
 team_id: Y4R9ZHWK9Y
-version: "5.1.0"                        # رقم النسخة للبناء وللمتجر معًا
+version: "5.1.1"                        # رقم النسخة للبناء وللمتجر معًا
 
 source:
   repo: osamafa86-dotcom/mediapro
