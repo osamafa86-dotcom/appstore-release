@@ -176,6 +176,24 @@ probe('البناءات') do
       exp   = (bd.respond_to?(:uses_non_exempt_encryption) ? bd.uses_non_exempt_encryption : nil)
       puts "• بناء #{bd.version} · المعالجة: #{state}#{exp.nil? ? '' : " · تعمية غير معفاة: #{exp}"}"
     end
+    # حجم أحدث بناءٍ كما تحسبه آبل لكل جهاز (ما يعرضه المتجر هو حجم التثبيت للجهاز المتصفِّح)
+    latest = builds.first
+    probe("حجم البناء #{latest.version}") do
+      api = Spaceship::ConnectAPI.client.tunes_request_client
+      bundles = api.get("builds/#{latest.id}/buildBundles").body['data'] || []
+      sizes = bundles.flat_map { |bb| api.get("buildBundles/#{bb['id']}/buildBundleFileSizes", { limit: 200 }).body['data'] || [] }
+                     .map { |x| x['attributes'] || {} }
+      if sizes.empty?
+        puts "• حجم البناء #{latest.version}: لم تحسبه آبل بعد (يظهر بعد اكتمال المعالجة)"
+      else
+        mb = ->(b) { format('%.1f', b.to_f / 1_000_000) }
+        dl = sizes.map { |x| x['downloadBytes'].to_i }.reject(&:zero?)
+        ins = sizes.map { |x| x['installBytes'].to_i }.reject(&:zero?)
+        uni = sizes.find { |x| x['deviceModel'].to_s.downcase.include?('universal') }
+        puts "• حجم البناء #{latest.version} عند آبل: تنزيل #{mb.(dl.min)}–#{mb.(dl.max)} م.ب · تثبيت #{mb.(ins.min)}–#{mb.(ins.max)} م.ب (#{sizes.size} جهازًا)"
+        puts "  الحزمة العامة (Universal): تنزيل #{mb.(uni['downloadBytes'])} م.ب · تثبيت #{mb.(uni['installBytes'])} م.ب" if uni
+      end
+    end
   end
 end
 
