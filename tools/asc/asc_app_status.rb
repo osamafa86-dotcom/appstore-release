@@ -179,7 +179,20 @@ probe('البناءات') do
     # حجم أحدث بناءٍ كما تحسبه آبل لكل جهاز (ما يعرضه المتجر هو حجم التثبيت للجهاز المتصفِّح)
     latest = builds.first
     probe("حجم البناء #{latest.version}") do
-      api = Spaceship::ConnectAPI.client.tunes_request_client
+      # عميل Spaceship العام لا يصل هذه المسارات (مقيس: «does not match a defined resource type» حتى لـbuilds/<id>)،
+      # فتُطلب الواجهة العامة مباشرةً بالرمز نفسه (JWT من مفتاح API)
+      require 'net/http'
+      require 'json'
+      api = Object.new
+      def api.get(path, params = {})
+        uri = URI("https://api.appstoreconnect.apple.com/v1/#{path}")
+        uri.query = URI.encode_www_form(params) unless params.empty?
+        req = Net::HTTP::Get.new(uri)
+        req['Authorization'] = "Bearer #{Spaceship::ConnectAPI.token.text}"
+        res = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |h| h.request(req) }
+        raise "HTTP #{res.code} #{path}: #{res.body.to_s[0, 200]}" unless res.code.start_with?('2')
+        Struct.new(:body).new(JSON.parse(res.body))
+      end
       mb = ->(b) { format('%.1f', b.to_f / 1_000_000) }
       # كل مسار في مسبار مستقل كي يُعرف أيّها ترفضه آبل باسمه
       bundles = probe('حزم البناء (include=buildBundles)') do
