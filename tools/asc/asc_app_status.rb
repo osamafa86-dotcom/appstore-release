@@ -180,7 +180,9 @@ probe('البناءات') do
     latest = builds.first
     probe("حجم البناء #{latest.version}") do
       api = Spaceship::ConnectAPI.client.tunes_request_client
-      bundles = api.get("builds/#{latest.id}/buildBundles").body['data'] || []
+      # لا مسار builds/<id>/buildBundles (مقيس: «does not match a defined resource type») — الحزم تأتي ضمن include
+      body = api.get("builds/#{latest.id}", { include: 'buildBundles', 'limit[buildBundles]' => 50 }).body
+      bundles = (body['included'] || []).select { |x| x['type'] == 'buildBundles' }
       sizes = bundles.flat_map { |bb| api.get("buildBundles/#{bb['id']}/buildBundleFileSizes", { limit: 200 }).body['data'] || [] }
                      .map { |x| x['attributes'] || {} }
       if sizes.empty?
