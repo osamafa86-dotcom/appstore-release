@@ -180,15 +180,23 @@ probe('البناءات') do
     latest = builds.first
     probe("حجم البناء #{latest.version}") do
       api = Spaceship::ConnectAPI.client.tunes_request_client
-      # لا مسار builds/<id>/buildBundles (مقيس: «does not match a defined resource type») — الحزم تأتي ضمن include
-      body = api.get("builds/#{latest.id}", { include: 'buildBundles', 'limit[buildBundles]' => 50 }).body
-      bundles = (body['included'] || []).select { |x| x['type'] == 'buildBundles' }
-      sizes = bundles.flat_map { |bb| api.get("buildBundles/#{bb['id']}/buildBundleFileSizes", { limit: 200 }).body['data'] || [] }
-                     .map { |x| x['attributes'] || {} }
+      mb = ->(b) { format('%.1f', b.to_f / 1_000_000) }
+      # كل مسار في مسبار مستقل كي يُعرف أيّها ترفضه آبل باسمه
+      bundles = probe('حزم البناء (include=buildBundles)') do
+        body = api.get("builds/#{latest.id}", { include: 'buildBundles' }).body
+        (body['included'] || []).select { |x| x['type'] == 'buildBundles' }
+      end || []
+      puts "• حزم البناء #{latest.version}: #{bundles.size}#{bundles.first ? " (#{(bundles.first['attributes'] || {}).keys.first(12).join(', ')})" : ''}"
+      sizes = []
+      bundles.each do |bb|
+        rows = probe("buildBundles/#{bb['id']}/buildBundleFileSizes") do
+          api.get("buildBundles/#{bb['id']}/buildBundleFileSizes", { limit: 200 }).body['data'] || []
+        end
+        sizes.concat(rows.map { |x| x['attributes'] || {} }) if rows
+      end
       if sizes.empty?
-        puts "• حجم البناء #{latest.version}: لم تحسبه آبل بعد (يظهر بعد اكتمال المعالجة)"
+        puts "• حجم البناء #{latest.version}: لا أرقام من آبل بعد"
       else
-        mb = ->(b) { format('%.1f', b.to_f / 1_000_000) }
         dl = sizes.map { |x| x['downloadBytes'].to_i }.reject(&:zero?)
         ins = sizes.map { |x| x['installBytes'].to_i }.reject(&:zero?)
         uni = sizes.find { |x| x['deviceModel'].to_s.downcase.include?('universal') }
