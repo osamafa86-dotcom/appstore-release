@@ -1,0 +1,44 @@
+# PostHistory — تطبيق المراسلين (SwiftUI، XcodeGen) في مستودع post-history
+name: "PostHistory"                    # اسم السجلّ إن أُنشئ أوّل مرة
+bundle_id: net.palpost.posthistory
+bundle_name: PostHistory
+sku: posthistory-ios
+team_id: Y4R9ZHWK9Y                    # يؤكده المالك (post-history#159)
+version: "0.1.0"
+
+source:
+  repo: osamafa86-dotcom/post-history
+  ref: main
+  private: false
+  workdir: apps/ios
+
+build:
+  python: ""
+  pip: []
+  brew: [xcodegen]
+  cache: {}
+  # عنوان /v1 لخادم التجربة يُكتب في API.local.xcconfig (غير ملتزَم به في post-history) قبل توليد المشروع.
+  # فارغًا يبقى عنوان العقد المثالي ولا يتصل البناء بأي خادم: يُملأ حين يحدد المالك نطاق التجربة.
+  prepare: |
+    TRIAL_API_BASE_URL=""
+    if [ -n "$TRIAL_API_BASE_URL" ]; then
+      printf 'PH_API_BASE_URL = %s\n' "$(printf '%s' "$TRIAL_API_BASE_URL" | sed 's#//#/$()/#')" > App/Config/API.local.xcconfig
+    fi
+    xcodegen generate
+  test: cd Packages/PostHistoryKit && swift test 2>&1 | tail -40
+  project: PostHistory.xcodeproj
+  scheme: PostHistory
+  signing: automatic                   # App Attest وPush Notifications على المعرّف (post-history#159)
+  profile: ""
+  extensions: []
+
+store:
+  metadata: apps/ios/store/metadata
+  screenshots: apps/ios/store/screenshots
+  names: ["PostHistory"]
+  primary_category: NEWS
+  secondary_category: ""
+  price: free
+  exclude_territories: []
+  third_party_content: false
+  automatic_release: false
