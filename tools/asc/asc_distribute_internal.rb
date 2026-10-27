@@ -39,12 +39,20 @@ loop do
 end
 
 ok = 0
-groups.each do |g|
+auto, manual = groups.partition { |g| g.respond_to?(:has_access_to_all_builds) && g.has_access_to_all_builds }
+puts "• مجموعات تستقبل كل بناء تلقائيًا: #{auto.size} (لا يُضاف إليها شيء)" unless auto.empty?
+ok += auto.size
+manual.each do |g|
   begin
     Spaceship::ConnectAPI.add_beta_groups_to_build(build_id: build.id, beta_group_ids: [g.id])
     ok += 1
   rescue => e
-    puts "  ⚠️ مجموعة لم تُضف: #{e.class} — #{e.message.to_s[0, 160]}"
+    if e.message.to_s.include?('Cannot add internal group to a build')
+      ok += 1
+      puts '• مجموعة تستقبل كل بناء تلقائيًا (رفضت آبل الإضافة اليدوية لهذا السبب)'
+    else
+      puts "  ⚠️ مجموعة لم تُضف: #{e.class} — #{e.message.to_s[0, 160]}"
+    end
   end
 end
-puts "✓ البناء #{build_number} وُزّع على #{ok} من #{groups.size} مجموعة داخلية"
+puts "✓ البناء #{build_number} متاح لـ #{ok} من #{groups.size} مجموعة داخلية"
