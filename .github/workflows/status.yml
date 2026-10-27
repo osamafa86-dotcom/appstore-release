@@ -30,4 +30,5 @@ jobs:
           ruby tools/asc/asc_app_status.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID"
           echo
           ruby tools/asc/asc_privacy_state.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID" || true
+          ruby tools/asc/asc_testflight_state.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID" || true
           rm -f "$RUNNER_TEMP/asc_key.json"
