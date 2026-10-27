@@ -35,7 +35,7 @@ build:
 store:
   metadata: apps/ios/store/metadata
   screenshots: apps/ios/store/screenshots
-  names: ["PostHistory"]
+  names: ["المكتبة المرئية للمراسلين", "المكتبة المرئية - بوست"]   # الأول من store/metadata/ar-SA/name.txt؛ الثاني بديل إن كان الاسم محجوزًا
   primary_category: NEWS
   secondary_category: ""
   price: free
