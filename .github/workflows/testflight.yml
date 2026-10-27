@@ -72,7 +72,7 @@ jobs:
         working-directory: src/${{ env.WORKDIR }}
         # عنوان خادم التطبيق من مفتاح "api" للتطبيق في متغير المستودع STORE_URLS، لا من ملف عام (قرار المالك 2026-10-27).
         env:
-          STORE_URLS: ${{ vars.STORE_URLS }}
+          STORE_URLS: ${{ vars.STORE_URLS || secrets.STORE_URLS }}
         run: |
           APP_API_BASE_URL=$(printf '%s' "${STORE_URLS:-{\}}" | python3 -c 'import json,os,sys; print(json.load(sys.stdin).get(os.environ["APP"], {}).get("api", ""))' 2>/dev/null || true)
           export APP_API_BASE_URL

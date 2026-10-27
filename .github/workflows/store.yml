@@ -41,7 +41,7 @@ jobs:
       # تُكتب وقت التشغيل وحدها، ولا تُستبدل ملفات موجودة في البيانات (قرار المالك 2026-10-27).
       - name: روابط الخصوصية والدعم من متغير المستودع
         env:
-          STORE_URLS: ${{ vars.STORE_URLS }}
+          STORE_URLS: ${{ vars.STORE_URLS || secrets.STORE_URLS }}
         run: |
           [ -n "$STORE_URLS" ] || { echo "• لا STORE_URLS — تُقرأ الروابط من ملفات البيانات"; exit 0; }
           python3 - <<'PY'
