@@ -1,5 +1,5 @@
 # PostHistory — تطبيق المراسلين (SwiftUI، XcodeGen) في مستودع post-history
-name: "PostHistory"                    # اسم السجلّ إن أُنشئ أوّل مرة
+name: "مكتبة بوست"                    # اسم السجلّ في App Store Connect
 bundle_id: net.palpost.posthistory
 bundle_name: PostHistory
 sku: posthistory-ios
@@ -35,7 +35,7 @@ build:
 store:
   metadata: apps/ios/store/metadata
   screenshots: apps/ios/store/screenshots
-  names: ["المكتبة المرئية للمراسلين", "المكتبة المرئية - بوست"]   # الأول من store/metadata/ar-SA/name.txt؛ الثاني بديل إن كان الاسم محجوزًا
+  names: ["مكتبة بوست"]   # اسم السجلّ الذي أنشأه المالك في App Store Connect (2026-10-27)
   primary_category: NEWS
   secondary_category: ""
   price: free
