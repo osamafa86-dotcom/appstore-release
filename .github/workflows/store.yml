@@ -37,6 +37,32 @@ jobs:
           path: src
           token: ${{ env.SRC_PRIVATE == 'true' && secrets.SOURCE_REPO_TOKEN || github.token }}
 
+      # روابط سياسة الخصوصية والدعم من متغير المستودع STORE_URLS (JSON لكل تطبيق)، لا من ملفات مستودع عام.
+      # تُكتب وقت التشغيل وحدها، ولا تُستبدل ملفات موجودة في البيانات (قرار المالك 2026-10-27).
+      - name: روابط الخصوصية والدعم من متغير المستودع
+        env:
+          STORE_URLS: ${{ vars.STORE_URLS }}
+        run: |
+          [ -n "$STORE_URLS" ] || { echo "• لا STORE_URLS — تُقرأ الروابط من ملفات البيانات"; exit 0; }
+          python3 - <<'PY'
+          import glob, json, os
+          urls = json.loads(os.environ["STORE_URLS"]).get(os.environ["APP"], {})
+          meta = "src/" + os.environ["METADATA_PATH"]
+          for d in sorted(glob.glob(meta + "/*/")):
+              loc = os.path.basename(d.rstrip("/"))
+              if loc == "review_information":
+                  continue
+              lang = "ar" if loc.startswith("ar") else "en"
+              for k in ("privacy", "support"):
+                  f = os.path.join(d, f"{k}_url.txt")
+                  if os.path.exists(f) and open(f, encoding="utf-8").read().strip():
+                      continue
+                  v = urls.get(f"{k}_{lang}") or urls.get(k)
+                  if v:
+                      open(f, "w", encoding="utf-8").write(v + "\n")
+                      print(f"✓ {loc}/{k}_url.txt من المتغير")
+          PY
+
       - name: الشروط — فشلٌ مُشخَّص قبل لمس آبل
         env:
           K1: ${{ secrets.ASC_API_KEY_ID }}
