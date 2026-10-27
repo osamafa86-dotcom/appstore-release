@@ -28,8 +28,8 @@ build:
   test: cd Packages/PostHistoryKit && swift test 2>&1 | tail -40
   project: PostHistory.xcodeproj
   scheme: PostHistory
-  signing: automatic                   # App Attest وPush Notifications على المعرّف (post-history#159)
-  profile: ""
+  signing: manual                      # شهادة التوزيع في الأسرار؛ الآلي بلغ حدّ الشهادات (2026-10-27). الإعداد في apps/ios/project.yml
+  profile: PostHistory AppStore CI
   extensions: []
 
 store:
