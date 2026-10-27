@@ -20,7 +20,7 @@ build:
   # عنوان /v1 لخادم التجربة يُكتب في API.local.xcconfig (غير ملتزَم به في post-history) قبل توليد المشروع.
   # فارغًا يبقى عنوان العقد المثالي ولا يتصل البناء بأي خادم: يُملأ حين يحدد المالك نطاق التجربة.
   prepare: |
-    TRIAL_API_BASE_URL=""
+    TRIAL_API_BASE_URL="${APP_API_BASE_URL:-}"   # من مفتاح api في متغير STORE_URLS
     if [ -n "$TRIAL_API_BASE_URL" ]; then
       printf 'PH_API_BASE_URL = %s\n' "$(printf '%s' "$TRIAL_API_BASE_URL" | sed 's#//#/$()/#')" > App/Config/API.local.xcconfig
     fi
