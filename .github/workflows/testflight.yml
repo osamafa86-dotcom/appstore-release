@@ -185,6 +185,10 @@ jobs:
           echo "### ✓ $APP $APP_VERSION ($BUILD_NUMBER) رُفع إلى TestFlight" >> "$GITHUB_STEP_SUMMARY"
           echo "يظهر للمختبِرين بعد المعالجة عند آبل (دقائق)." >> "$GITHUB_STEP_SUMMARY"
 
+      # altool لا يضيف البناء إلى أي مجموعة: يُوزَّع على المجموعات الداخلية وحدها بعد المعالجة (طلب المالك 2026-10-28).
+      - name: التوزيع على مجموعات الاختبار الداخلية
+        run: ruby tools/asc/asc_distribute_internal.rb "$ASC_KEY_JSON" "$BUNDLE_ID" "$BUILD_NUMBER" "$APP_VERSION" 25 || echo "::warning::تعذّر التوزيع الآلي — يُضاف البناء يدويًا من TestFlight"
+
       - name: تنظيف
         if: always()
         run: rm -f "$RUNNER_TEMP/asc_key.json" ~/private_keys/*.p8 ~/.appstoreconnect/private_keys/*.p8; security delete-keychain build.keychain 2>/dev/null || true
