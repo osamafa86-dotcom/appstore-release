@@ -4,7 +4,7 @@ bundle_id: net.palpost.posthistory
 bundle_name: PostHistory
 sku: posthistory-ios
 team_id: Y4R9ZHWK9Y                    # يؤكده المالك (post-history#159)
-version: "0.1.0"
+version: "1.0"  # يطابق سجلّ نسخة المتجر 1.0؛ البناء 1 رُفع 1.0 فكانت 0.1.0 أدنى منه في TestFlight (2026-10-28)
 
 source:
   repo: osamafa86-dotcom/post-history
