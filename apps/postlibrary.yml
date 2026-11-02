@@ -1,6 +1,6 @@
-# المكتبة المرئية — تطبيق رفع المراسلين على Android، في مستودع post-history (apps/android)
+# ميدان بوست (Maydan Post) — تطبيق رفع المراسلين على Android، في مستودع post-history (apps/android)
 # نسخة iOS في apps/posthistory.yml. هنا Google Play وحده (فروع play-*).
-name: "المكتبة المرئية"
+name: "ميدان بوست"                    # قرار المالك 2026-11-02؛ كان «المكتبة المرئية». عنوان Play من title.txt في post-history
 version: "0.1.0"
 
 source:
