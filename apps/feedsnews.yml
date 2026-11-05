@@ -1,13 +1,58 @@
 # فيد نيوز — تطبيق Flutter في مستودع postfeed (الموقع feedsnews.net في المستودع نفسه)
-# Android وحده هنا الآن؛ حقول iOS تُضاف حين يُنقل رفع الآيفون إلى هذا المستودع.
 name: "فيد نيوز"
-version: "2.11.0"                       # versionName في الحزمة من pubspec.yaml — يجب أن يطابقه
+bundle_id: net.feedsnews.newsfeed       # من app/ios/Runner.xcodeproj
+bundle_name: FeedsNews
+sku: feedsnews-ios
+team_id: Y4R9ZHWK9Y                     # DEVELOPMENT_TEAM في المشروع وExportOptions.plist
+version: "2.14.0"                       # versionName في الحزمة من pubspec.yaml — يجب أن يطابقه
 
 source:
   repo: osamafa86-dotcom/postfeed
   ref: main
   private: true                         # يتطلّب SOURCE_REPO_TOKEN (قراءة postfeed)
   workdir: app
+
+# ── iOS (فروع testflight/upload/submit) ─────────────────────────────────────
+# المشروع في postfeed مضبوط على التوقيع الآلي لجهاز المطوّر؛ هنا يُقلب في نسخة CI
+# وحدها إلى يدوي بشهادة التوزيع وملف provisioning بالاسم أدناه (الآلي يشترط دور Admin).
+# Info.plist يقرأ رقمَي النسخة من Flutter؛ يُحوَّلان إلى ما يمرّره السير (آخر رقم عند آبل + 1).
+# GoogleService-Info.plist لا يدخل المستودع: التطبيق يقلع بدونه (main.dart يلتقط الغياب) بلا إشعارات.
+build:
+  python: ""
+  pip: []
+  brew: []
+  cache: {}
+  prepare: |
+    git clone -q --depth 1 -b 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+    export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+    flutter --version
+    flutter pub get
+    flutter build ios --release --config-only --build-name "$APP_VERSION"
+    (cd ios && pod install)
+    perl -pi -e 's/\$\(FLUTTER_BUILD_NAME\)/\$(MARKETING_VERSION)/; s/\$\(FLUTTER_BUILD_NUMBER\)/\$(CURRENT_PROJECT_VERSION)/' ios/Runner/Info.plist
+    perl -pi -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/;
+                 s/PROVISIONING_PROFILE_SPECIFIER = "";/PROVISIONING_PROFILE_SPECIFIER = "FeedsNews AppStore CI";/;
+                 s/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "Apple Distribution";/;
+                 s/"iPhone Developer"/"iPhone Distribution"/' ios/Runner.xcodeproj/project.pbxproj
+    grep -c 'CODE_SIGN_STYLE = Manual' ios/Runner.xcodeproj/project.pbxproj
+    grep -A1 CFBundleVersion ios/Runner/Info.plist | tail -1
+  test: ""                              # الاختبارات في CI مستودع postfeed قبل الدمج في main
+  project: ios/Runner.xcworkspace
+  scheme: Runner
+  signing: manual
+  profile: FeedsNews AppStore CI
+  extensions: []
+
+store:
+  metadata: ""
+  screenshots: ""
+  names: ["فيد نيوز"]
+  primary_category: NEWS
+  secondary_category: ""
+  price: free
+  exclude_territories: []
+  third_party_content: true             # أخبار مجمَّعة من مصادر خارجية
+  automatic_release: false
 
 # ── Google Play (فروع play-*) ────────────────────────────────────────────────
 android:
@@ -24,7 +69,7 @@ android:
     git clone -q --depth 1 -b 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
     export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
     cd ..
-    flutter --version | head -1
+    flutter --version
     flutter pub get
     flutter build apk --release --config-only
     if [ ! -f android/app/google-services.json ]; then
@@ -36,9 +81,11 @@ android:
       echo "::warning::google-services.json غائب: هذه الحزمة بلا إشعارات (مقبول لمسارات الاختبار)"
       echo "nf.allowNoFirebase=true" >> android/gradle.properties
     fi
+    # Flutter يبني في app/build؛ رفع الأثر يرفض مسارًا فيه «..» فيُقرأ عبر رابط داخل android/
+    ln -sfn ../build android/flutter-build
   test: ""                              # الاختبارات في CI مستودع postfeed قبل الدمج في main
   task: ":app:bundleRelease"
-  aab: ../build/app/outputs/bundle/release/*.aab   # Flutter يبني في app/build لا android/app/build
+  aab: flutter-build/app/outputs/bundle/release/*.aab   # رابط إلى app/build (انظر prepare)
   version_code_base: 1000               # فوق رقم pubspec (+51) — versionCode = هذا + رقم التشغيل
   key_alias: upload
   env:                                  # ما يقرؤه app/android/app/build.gradle.kts
