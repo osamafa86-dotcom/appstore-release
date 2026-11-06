@@ -49,7 +49,7 @@ store:
 # ── Google Play (فروع play-*) ────────────────────────────────────────────────
 android:
   package: org.emdatra.sakinah
-  version: "5.1.1"                      # اسم إصدار Play (iOS على version أعلاه)
+  version: "5.2.0"                      # اسم إصدار Play (iOS على version أعلاه)
   workdir: sakinah-android
   java: "21"
   gradle: "8.14.3"                      # لا gradlew في المشروع: نسخة Gradle محدّدة
