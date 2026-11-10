@@ -13,6 +13,12 @@
 # ومعها طريقة الإصدار بعد الموافقة (يدويّ ما لم يُمرَّر --auto-release) كما يضبطها `submit`.
 # **لا يكتب** اسماً ولا فئة ولا وصفاً ولا كلمات مفتاحية ولا لقطات ولا بيانات مراجعة.
 #
+# واستثناءٌ واحد مشروط: سؤال «وسائل التواصل» في استبيان التصنيف العمري. صار جوابه شرطاً لكل
+# تقديم منذ أيلول ٢٠٢٦، والتطبيقات المنشورة قبله بلا جواب — فأوّل تحديثٍ لها يُرفض عند إضافة
+# النسخة إلى التقديم (قِيس على فيد نيوز: «missing a required attribute 'socialMedia'»، وكان كل
+# ما قبله قد كُتب). الجواب **إقرارٌ من المالك لآبل** لا تخمينٌ من الأداة: يُكتب فقط إن كان بلا
+# جوابٍ عند آبل **و**ضبطه المالك في `store.social_media` (true/false)، ولا يُستبدل جوابٌ قائم.
+#
 # **يقيس قبل أن يكتب**: كل ما يلزم التقديم يُقرأ ويُطبع أولاً، وأيّ نقصٍ يوقف قبل أوّل كتابة.
 # و`--check` يقف بعد القياس (قراءةٌ محضة)، فيُدفع `submit-build-check/<app>` أولاً عند الشك.
 # والكتابات تُعاد بأمان: ما ضُبط من قبل يُترك، فتشغيلٌ ثانٍ بعد فشل التقديم يكمل من حيث وقف.
@@ -46,6 +52,11 @@ notes.reject! { |_, v| v.empty? }
 abort "✗ #{config_path}: store.whats_new فارغ — آبل تشترط «ما الجديد» لكل تحديث" if notes.empty?
 notes.each { |k, v| abort "✗ store.whats_new[#{k}] يتجاوز ٤٠٠٠ حرف (#{v.length})" if v.length > 4000 }
 note_for = ->(locale) { notes[locale] || notes['*'] }
+
+# جواب المالك عن سؤال «وسائل التواصل» — true أو false حرفياً، أو غائب (فيُجاب في App Store Connect).
+store_cfg = (YAML.safe_load(File.read(config_path)) || {})['store'] || {}
+sm_cfg = store_cfg['social_media']
+abort "✗ #{config_path}: store.social_media يجب أن يكون true أو false (وُجد #{sm_cfg.inspect})" unless [nil, true, false].include?(sm_cfg)
 
 Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from_json_file(key_path)
 IOS = Spaceship::ConnectAPI::Platform::IOS
@@ -173,6 +184,38 @@ else
   problems << 'تقديمٌ مفتوح فيه بنودٌ لم يضعها هذا السير — أزِلها أو ألغِه من App Store Connect ← App Review'
 end
 
+# ── ٥) استبيان التصنيف العمري ──────────────────────────────────────────
+# يُقرأ خاماً لا عبر نموذج Spaceship: النموذج يُسقط كل حقلٍ لا يعرفه إصدار fastlane المثبَّت،
+# والحقول الجديدة (كهذا) هي بالذات ما يُسأل عنه.
+puts "\n── استبيان التصنيف العمري ──"
+info = read('معلومات التطبيق') { app.fetch_edit_app_info || app.fetch_live_app_info }
+ard_id   = nil
+sm_write = false
+if info.nil?
+  problems << 'لا سجلّ معلوماتٍ للتطبيق (AppInfo) يُقرأ منه التصنيف العمري'
+else
+  data   = read('التصنيف العمري') { Spaceship::ConnectAPI.get_age_rating_declaration(app_info_id: info.id).body['data'] } || {}
+  ard_id = data['id']
+  ard    = data['attributes'] || {}
+  set, unset = ard.partition { |_, v| !v.nil? }
+  puts "• المُجاب (#{set.size}): #{set.map { |k, v| "#{k}=#{v}" }.join(' · ')}"
+  puts "• بلا قيمة (#{unset.size}): #{unset.map(&:first).join(' · ')}" unless unset.empty?
+  if !ard.key?('socialMedia')
+    puts '• سؤال «وسائل التواصل» (socialMedia) غير موجود في ردّ آبل — لا يُقاس'
+  elsif !ard['socialMedia'].nil?
+    puts "• وسائل التواصل: مُجاب عند آبل (#{ard['socialMedia']}) — يبقى كما هو"
+    puts "  ⚠️ store.social_media=#{sm_cfg} يخالف المُجاب عند آبل — لا يُستبدل؛ عدّله في App Store Connect إن لزم" if !sm_cfg.nil? && sm_cfg != ard['socialMedia']
+  elsif sm_cfg.nil?
+    problems << 'سؤال «وسائل التواصل» في استبيان التصنيف العمري بلا جواب (شرطٌ لكل تقديم منذ أيلول ٢٠٢٦) — ' \
+                'يجيب عنه المالك في App Store Connect ← App Information ← Age Rating، أو يضبط store.social_media في apps/<app>.yml'
+  elsif ard_id.nil?
+    problems << 'لا معرّف لاستبيان التصنيف العمري في ردّ آبل — لا يُكتب جواب «وسائل التواصل»'
+  else
+    sm_write = true
+    plan << "استبيان التصنيف العمري: وسائل التواصل ← #{sm_cfg ? 'نعم' : 'لا'} (store.social_media)"
+  end
+end
+
 want_release = auto ? 'AFTER_APPROVAL' : 'MANUAL'
 plan << "طريقة الإصدار ← #{want_release}" if version.nil? || version.release_type.to_s != want_release
 locs.each { |l| plan << "«ما الجديد» (#{l.locale}) ← #{note_for.(l.locale).to_s.length} حرفاً" if note_for.(l.locale) && l.whats_new.to_s.strip != note_for.(l.locale) }
@@ -241,6 +284,13 @@ if attached && attached.id == build.id
   puts "• البناء #{build.version} مرفقٌ أصلاً"
 else
   write("أُرفق البناء #{build.version}") { version.select_build(build_id: build.id) }
+end
+
+# ‏(د٢) جواب المالك عن «وسائل التواصل» — فقط حين كان بلا جواب عند آبل (انظر القياس)
+if sm_write
+  write("استبيان التصنيف العمري: وسائل التواصل ← #{sm_cfg ? 'نعم' : 'لا'}") do
+    Spaceship::ConnectAPI.patch_age_rating_declaration(age_rating_declaration_id: ard_id, attributes: { 'socialMedia' => sm_cfg })
+  end
 end
 
 # ‏(هـ) التقديم — ترتيب deliver نفسه: تقديمٌ مفتوح، ثم النسخة بنداً فيه، ثم الإرسال حين تصير جاهزة
