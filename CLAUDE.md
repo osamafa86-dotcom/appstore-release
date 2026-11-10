@@ -6,6 +6,10 @@
 ## القواعد
 - لا تكتب أسرارًا في أي ملف أو رسالة، ولا تطبع محتوى `asc_key.json` أو `.p8` أو `.p12`.
 - `submit/<app>` يقدّم للمراجعة عند آبل: لا تدفعه إلا بطلبٍ صريح من المالك في جلستك.
+- `submit-build/<app>` يقدّم للمراجعة أيضاً (بناءٌ مرفوع، وصفحة المتجر كما هي): الشرط نفسه. يكتب رقم النسخة
+  و«ما الجديد» وطريقة الإصدار ويُرفق البناء، ولا يمسّ الاسم ولا الوصف ولا اللقطات. `submit-build-check/<app>`
+  قراءة فقط — ادفعه أولاً. و`submit/<app>` **يستبدل** نصوص الصفحة ولقطاتها بما في مستودع التطبيق: لتطبيقٍ
+  صفحتُه في App Store Connect وحدها استعمل `submit-build`.
 - `status/<app>` آمن دائمًا (قراءة فقط) — ابدأ به عند الشك.
 - `play-production/<app>` يُرسل لمراجعة Google: لا تدفعه إلا بطلبٍ صريح من المالك. `play-build` لا يكتب عند Google.
 - `play-keygen/<app>` مرة واحدة لكل تطبيق، ولا يستبدل مفتاحًا موجودًا؛ ينظّف `SECRETS_PAT` وراءه.
@@ -21,6 +25,7 @@
    ```bash
    git fetch origin main
    git checkout -B <action>/<app> origin/main      # testflight | upload | submit | status | resubmit
+                                                   # submit-build | submit-build-check
                                                    # play-build | play-internal | play-closed | play-production
                                                    # play-status | play-details | play-keygen
    echo "$(date -u +%FT%TZ) <سبب مختصر>" >> triggers/<app>.log

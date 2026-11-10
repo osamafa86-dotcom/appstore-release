@@ -1,0 +1,45 @@
+# 📦 تقديم بناءٍ مرفوع لمراجعة آبل **دون مسّ صفحة المتجر**: رقم النسخة، «ما الجديد»، إرفاق البناء، التقديم.
+#   submit-build-check/<app> → قياسٌ فقط: يطبع ما سيُكتب وما ينقص، ولا يكتب شيئاً
+#   submit-build/<app>       → يكتب الأربعة ويقدّم للمراجعة
+# للتطبيق المنشور الذي صفحتُه (الوصف واللقطات) مضبوطة في App Store Connect وليست في مستودعه:
+# `submit/<app>` كان سيستبدلها بما في المستودع. «ما الجديد» من store.whats_new في apps/<app>.yml،
+# والبناء store.submit_build وإلا أحدث بناءٍ صالح للنسخة نفسها.
+name: المتجر — تقديم بناء (الصفحة كما هي)
+
+on:
+  push:
+    branches: ['submit-build/**', 'submit-build-check/**']
+
+concurrency:
+  group: store-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  submit-build:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_OPT_OUT_USAGE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: إعداد التطبيق من apps/
+        run: ruby tools/config_env.rb >> "$GITHUB_ENV"
+      - name: القياس ثم التقديم ثم الجرد
+        env:
+          KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+        run: |
+          [ -n "$KEY_ID" ] && [ -n "$ISSUER_ID" ] && [ -n "$P8_B64" ] || { echo "::error::أسرار App Store Connect ناقصة"; exit 1; }
+          P8_CLEAN=$(printf '%s' "$P8_B64" | tr -d '\n\r ')
+          printf '{"key_id":"%s","issuer_id":"%s","key":"%s","is_key_content_base64":true,"in_house":false}' \
+            "$KEY_ID" "$ISSUER_ID" "$P8_CLEAN" > "$RUNNER_TEMP/asc_key.json"
+          FLAGS=()
+          case "$GITHUB_REF_NAME" in submit-build-check/*) FLAGS+=(--check);; esac
+          [ "$AUTOMATIC_RELEASE" = "true" ] && FLAGS+=(--auto-release)
+          [ -n "$SUBMIT_BUILD" ] && FLAGS+=(--build "$SUBMIT_BUILD")
+          ruby tools/asc/asc_submit_build.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID" "$APP_VERSION" "apps/$APP.yml" "${FLAGS[@]}" || STATUS=$?
+          ruby tools/asc/asc_app_status.rb "$RUNNER_TEMP/asc_key.json" "$BUNDLE_ID" || true
+          rm -f "$RUNNER_TEMP/asc_key.json"
+          exit ${STATUS:-0}
