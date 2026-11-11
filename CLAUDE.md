@@ -10,6 +10,9 @@
   و«ما الجديد» وطريقة الإصدار ويُرفق البناء، ولا يمسّ الاسم ولا الوصف ولا اللقطات. `submit-build-check/<app>`
   قراءة فقط — ادفعه أولاً. و`submit/<app>` **يستبدل** نصوص الصفحة ولقطاتها بما في مستودع التطبيق: لتطبيقٍ
   صفحتُه في App Store Connect وحدها استعمل `submit-build`.
+- `release/<app>` **يُنزل النسخة للمستخدمين** (لتطبيقٍ إصدارُه يدوي بعد موافقة آبل) ولا رجعة فيه: لا تدفعه إلا بطلبٍ
+  صريح من المالك في جلستك بعد أن يقول إن آبل وافقت. لا يُصدر إلا نسخةً في PENDING_DEVELOPER_RELEASE رقمُها
+  `version` في `apps/<app>.yml`. `release-check/<app>` قراءة فقط.
 - `store.social_media` (true/false) في `apps/<app>.yml` جوابُ سؤال «وسائل التواصل» في استبيان التصنيف العمري —
   شرطٌ لكل تقديم منذ أيلول ٢٠٢٦، و`submit-build` يكتبه فقط إن كان بلا جواب عند آبل. **إقرارٌ من المالك لآبل**
   (يظهر وسماً على صفحة المتجر ويرفع الحدّ الأدنى للعمر): لا تضبطه إلا بجوابٍ صريح منه، ولا تخمّنه من الشيفرة.
@@ -28,7 +31,7 @@
    ```bash
    git fetch origin main
    git checkout -B <action>/<app> origin/main      # testflight | upload | submit | status | resubmit
-                                                   # submit-build | submit-build-check
+                                                   # submit-build | submit-build-check | release | release-check
                                                    # play-build | play-internal | play-closed | play-production
                                                    # play-status | play-details | play-keygen
    echo "$(date -u +%FT%TZ) <سبب مختصر>" >> triggers/<app>.log
